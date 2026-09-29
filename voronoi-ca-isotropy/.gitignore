@@ -1,0 +1,25 @@
+# Lisp build artefacts
+*.fasl
+*.fas
+*.lib
+*.dfsl
+*.x86f
+.sbclrc
+
+# Generated results.
+# The CSVs and the two figures in results/ ARE committed -- they are the
+# published result and the README links to them. Intermediate PPM snapshots are
+# large and regenerable, so they are not.
+results/*.ppm
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor / OS
+*~
+\#*\#
+.\#*
+.DS_Store
