@@ -22,6 +22,7 @@
    #:set-edge-length!
    #:face-distances-from-positions
    #:positions-table
+   #:make-fv-tessellation
 
    ;; dense cell-id <-> array-index mapping, for the mechanistic engine
    #:cell-index
@@ -39,6 +40,14 @@
    #:voronoi-grid-seed
    #:voronoi-grid-seed-points
    #:make-voronoi-grid
+
+   ;; nearest-seed Voronoi builder - the grid for reaction-diffusion
+   #:seed-bin-size
+   #:seed-bins
+   #:ring-bins
+   #:nearest-seed-index
+   #:nearest-seed-ids
+   #:make-nearest-seed-grid
 
    ;; world: the explicit, non-global state of one simulation instance
    #:world

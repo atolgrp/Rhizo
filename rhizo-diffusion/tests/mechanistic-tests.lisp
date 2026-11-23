@@ -26,11 +26,8 @@ finite-volume engine must ignore; it defaults to DISTANCE."
     (setf (gethash "0" cell-areas) area)
     (setf (gethash "1" cell-areas) area)
     (set-edge-length! edge-lengths "0" "1" edge-len)
-    (make-hash-graph-tessellation
-     adjacency :cell-areas cell-areas :edge-lengths edge-lengths
-               :cell-positions positions
-               :face-distances (face-distances-from-positions
-                                adjacency (lambda (id) (gethash id positions))))))
+    (make-fv-tessellation adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                                    :cell-positions positions)))
 
 (test field-initial-state-samples-fields-at-cell-positions
   ;; Cell "0" sits at (0, 0) and cell "1" at (4, 0).

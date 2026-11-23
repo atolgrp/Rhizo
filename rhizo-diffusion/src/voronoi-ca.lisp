@@ -181,11 +181,9 @@ Phase 1, step 4."
                                      (lambda (id) (aref seed-points id)))))
     (multiple-value-bind (cell-areas edge-lengths) (build-geometry ids width height)
       (%make-voronoi-grid
-       :tessellation (make-hash-graph-tessellation
-                      adjacency :cell-areas cell-areas :edge-lengths edge-lengths
-                                :cell-positions positions
-                                :face-distances (face-distances-from-positions
-                                                 adjacency (lambda (id) (gethash id positions))))
+       :tessellation (make-fv-tessellation adjacency :cell-areas cell-areas
+                                                     :edge-lengths edge-lengths
+                                                     :cell-positions positions)
        :width width :height height :ids ids :seed seed :seed-points seed-points))))
 
 (defun voronoi-grid-id-at (grid x y)

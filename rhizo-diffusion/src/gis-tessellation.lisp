@@ -93,11 +93,8 @@ two-point flux is only approximately consistent there."
          (centroids (positions-table (mapcar #'region-id regions)
                                      (lambda (id) (region-centroid (gethash id by-id))))))
     (multiple-value-bind (adjacency cell-areas edge-lengths) (build-gis-adjacency regions)
-      (make-hash-graph-tessellation
-       adjacency :cell-areas cell-areas :edge-lengths edge-lengths
-                 :cell-positions centroids
-                 :face-distances (face-distances-from-positions
-                                  adjacency (lambda (id) (gethash id centroids)))))))
+      (make-fv-tessellation adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                                      :cell-positions centroids))))
 
 (defun tessellation-from-geojson (path)
   "Parse the GeoJSON FeatureCollection at PATH and build a tessellation

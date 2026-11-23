@@ -8,6 +8,7 @@
   :components ((:file "package")
                (:file "tessellation")
                (:file "voronoi-ca")
+               (:file "nearest-seed")
                (:file "world")
                (:file "diffusion")
                (:file "metrics")
@@ -31,6 +32,7 @@
   :serial t
   :components ((:file "package")
                (:file "tessellation-tests")
+               (:file "nearest-seed-tests")
                (:file "world-tests")
                (:file "diffusion-tests")
                (:file "metrics-tests")

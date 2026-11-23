@@ -107,6 +107,18 @@ so the two agree by construction."
                  :adjacency adjacency :cell-areas cell-areas :edge-lengths edge-lengths
                  :face-distances face-distances :cell-positions cell-positions))
 
+(defun make-fv-tessellation (adjacency &key cell-areas edge-lengths cell-positions)
+  "Return a HASH-GRAPH-TESSELLATION over ADJACENCY with full finite-volume
+geometry: CELL-AREAS, EDGE-LENGTHS and CELL-POSITIONS as given, and
+FACE-DISTANCES derived from CELL-POSITIONS (FACE-DISTANCES-FROM-POSITIONS).
+Every grid builder goes through here, so FACE-DISTANCE and CELL-POSITION
+cannot disagree."
+  (make-hash-graph-tessellation
+   adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+             :cell-positions cell-positions
+             :face-distances (face-distances-from-positions
+                              adjacency (lambda (id) (gethash id cell-positions)))))
+
 (defmethod cell-ids ((tess hash-graph-tessellation))
   (loop for id being the hash-keys of (tessellation-adjacency tess) collect id))
 
