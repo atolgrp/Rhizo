@@ -1,0 +1,52 @@
+# output-nil-bug.lisp — captured run log
+# date (UTC)    : 2026-10-05T08:05:54Z
+# sbcl          : SBCL 2.2.9.debian
+# femlisp       : femlisp-20250622-git  (VERSION file: Femlisp-2.2.1)
+# script sha256 : e7cee4e63908cf67d6168bf889c571f47b2a5ac545a1ad723e2977d38b227290
+# command       : sbcl --dynamic-space-size 4096 --script output-nil-bug.lisp
+# ----------------------------------------------------------------
+=== 1. root cause ===
+   reproducing the arithmetic directly:
+     *output-depth* = 0        -> T
+     *output-depth* = 1        -> T
+     *output-depth* = T        -> T
+     *output-depth* = :ALL     -> T
+     *output-depth* = :INFINITY -> T
+     *output-depth* = NIL      -> TYPE-ERROR: The value   NIL is not of type   REAL
+=== 2. is the fix behaviour-preserving? ===
+   *output-depth* *iter-depth*   original       patched        verdict
+   ------------------------------------------------------------------
+   0                           0 T              T              same
+   0                           1 NIL            NIL            same
+   0                           2 NIL            NIL            same
+   1                           0 T              T              same
+   1                           1 T              T              same
+   1                           2 NIL            NIL            same
+   2                           0 T              T              same
+   2                           1 T              T              same
+   2                           2 T              T              same
+   T                           0 T              T              same
+   T                           1 T              T              same
+   T                           2 T              T              same
+   :ALL                        0 T              T              same
+   :ALL                        1 T              T              same
+   :ALL                        2 T              T              same
+   :INFINITY                   0 T              T              same
+   :INFINITY                   1 T              T              same
+   :INFINITY                   2 T              T              same
+   NIL                         0 TYPE-ERROR     NIL            FIXED
+   NIL                         1 TYPE-ERROR     NIL            FIXED
+   NIL                         2 TYPE-ERROR     NIL            FIXED
+   behaviour changed only where it previously crashed: YES
+   cases fixed: 3   unintended differences: 0
+=== 3. end-to-end, before and after the patch ===
+   before patch           :output nil -> TYPE-ERROR: The value   NIL is not of type   REAL
+   after patch            :output nil -> OK (<ANSATZ-SPACE-VECTOR>)
+   regression -- values that already worked:
+     :output 0          -> OK
+     :output 1          -> OK
+     :output T          -> OK
+     :output absent     -> OK
+done.
+# ----------------------------------------------------------------
+# exit status: 0

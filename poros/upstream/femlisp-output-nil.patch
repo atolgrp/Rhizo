@@ -1,0 +1,12 @@
+--- femlisp-orig/src/iteration/iterate.lisp	2026-10-05 11:06:37.135444882 +0300
++++ femlisp-new/src/iteration/iterate.lisp	2026-10-05 11:06:37.176584575 +0300
+@@ -68,7 +68,8 @@
+ 	  #+(or) (when (null slot) (error "output-slot is NIL"))
+ 	  slot)
+ 	(or (member *output-depth* '(t :all :infinity))
+-	    (<= *iteration-depth* *output-depth*)))))
++	    (and (realp *output-depth*)
++		 (<= *iteration-depth* *output-depth*))))))
+ 
+ (defgeneric iter-format (stream control-string &rest args)
+   (:documentation "Iteration output should be made using this function

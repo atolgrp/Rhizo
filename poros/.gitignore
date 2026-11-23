@@ -1,0 +1,9 @@
+*.fasl
+*.fas
+*.lib
+*.x86f
+results/
+__pycache__/
+*~
+\#*\#
+.\#*

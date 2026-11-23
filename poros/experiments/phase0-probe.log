@@ -1,0 +1,38 @@
+# Phase 0 probe — captured run log
+# ------------------------------------------------------------------
+# date (UTC)      : 2026-10-01T07:20:03Z
+# host            : Linux 6.18.44-fc-v50 x86_64
+# sbcl            : SBCL 2.2.9.debian
+# script sha256   : 6c8d36979db66c98178d5e61da02c54b96dff745a8094bf9f6d69ae63d2b60f0
+# quicklisp dist  : archives
+version: 2026-01-01
+# femlisp release : femlisp-20250622-git
+# magicl release  : magicl-v0.11.0
+# lla release     : lla-20260101-git
+# command         : sbcl --dynamic-space-size 4096 --script phase0-probe.lisp
+# ------------------------------------------------------------------
+
+== loading femlisp ==
+   loaded in 1.6 s
+
+== FL.* packages present ==
+   37 packages: FL.ALIEN FL.ALIENC FL.AMOP FL.APPLICATION FL.CDR FL.DEBUG FL.DEMO FL.DICTIONARY FL.DISCRETIZATION FL.DOMAINS FL.ELASTICITY FL.ELASTICITY-FE FL.ELLSYS FL.ELLSYS-FE FL.FLOW-APPLICATION FL.FUNCTION FL.GEOMG FL.GRAPHIC FL.ITERATION FL.KONWIHR FL.LAPACK FL.MACROS FL.MATLISP FL.MESH FL.MULTIGRID FL.NAVIER-STOKES FL.NAVIER-STOKES-FE FL.PARALLEL FL.PATCHES FL.PLOT FL.PORT FL.PROBLEM FL.SCHAEFER-TUREK FL.START FL.STRATEGY FL.TESTS FL.UTILITIES
+
+== entry points ==
+   FL.CDR           CDR-MODEL-PROBLEM                    present
+   FL.STRATEGY      SOLVE                                present
+   FL.PROBLEM       BLACKBOARD                           present
+   FL.DOMAINS       N-CUBE-DOMAIN                        present
+   FL.MESH          UNIFORMLY-REFINED-HIERARCHICAL-MESH  present
+
+== solve a 2D CDR model problem ==
+<Plotting suppressed>
+<Plotting suppressed>
+<Plotting suppressed>
+<Plotting suppressed>
+   SOLVE COMPLETED
+
+Phase 0 step 1 complete. Step 3 (mass balance) is the real gate.
+
+# ------------------------------------------------------------------
+# exit status: 0

@@ -1,0 +1,27 @@
+# convergence.lisp — captured run log
+# date (UTC)    : 2026-10-01T07:33:38Z
+# sbcl          : SBCL 2.2.9.debian
+# femlisp       : femlisp-20250622-git
+# script sha256 : a7d4e92a0067ad93df839ca8cf2564ee3171fc5ad699f2389ea22bb9f791a6c6
+# command       : sbcl --dynamic-space-size 6144 --script convergence.lisp
+# ----------------------------------------------------------------
+manufactured solution: u = sin(pi x) sin(pi y) on the unit square
+exact integral of u    = 0.405284734569
+Lagrange order         = 1
+levels computed integral  abs error      rate    
+----------------------------------------------------
+     2     0.306909904468       9.837d-2 --      
+     3     0.383569401357       2.172d-2 2.18    
+     4     0.400022450959       5.262d-3 2.04    
+     5     0.403979298262       1.305d-3 2.01    
+manufactured solution: u = sin(pi x) sin(pi y) on the unit square
+exact integral of u    = 0.405284734569
+Lagrange order         = 2
+levels computed integral  abs error      rate    
+----------------------------------------------------
+     2     0.408229094459       2.944d-3 --      
+     3     0.405492534250       2.078d-4 3.82    
+     4     0.405298026086       1.329d-5 3.97    
+done.
+# ----------------------------------------------------------------
+# exit status: 0

@@ -1,0 +1,21 @@
+# mass-balance.lisp — captured run log
+# date (UTC)    : 2026-10-01T07:33:44Z
+# sbcl          : SBCL 2.2.9.debian
+# femlisp       : femlisp-20250622-git
+# script sha256 : ad732b3077822b210298f9e57395e2ff4745ed0695ef0e527a9d088aa99d3547
+# command       : sbcl --dynamic-space-size 6144 --script mass-balance.lisp
+# ----------------------------------------------------------------
+no-flux diffusion, u0 = 1 + 1/2 cos(pi x) cos(pi y)
+exact total mass (conserved) = 1.000000000000000
+order  levels  steps    total mass           abs error      rel error   
+------------------------------------------------------------------------
+     2       3        1    0.999999999999999      6.661d-16    6.661d-16
+     2       3       10    0.999999999999998      2.220d-15    2.220d-15
+     2       3       50    0.999999999999995      4.663d-15    4.663d-15
+     1       3       50    1.000000000000007      7.327d-15    7.327d-15
+     2       4       50    0.999999999999935      6.495d-14    6.495d-14
+     2       3      200    1.000000000000031      3.131d-14    3.131d-14
+Global conservation is necessary but NOT sufficient -- see the
+header of this file and local-conservation.lisp.
+# ----------------------------------------------------------------
+# exit status: 0
