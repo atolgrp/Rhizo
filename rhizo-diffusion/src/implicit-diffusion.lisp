@@ -7,10 +7,11 @@
 ;;; over 400 pixels). A run that must span slow diffusion and a fast event
 ;;; cannot afford that. Backward Euler is stable at any step:
 ;;;
-;;;     (A + dt D K) c' = A c
+;;;     (A + dt K) c' = A c
 ;;;
 ;;; with A the diagonal of cell areas and K the symmetric two-point-flux
-;;; matrix held by the FLUX-STENCIL, (K x)_i = sum_j g_ij (x_i - x_j). The
+;;; matrix held by the FLUX-STENCIL, (K x)_i = sum_j D_ij g_ij (x_i - x_j),
+;;; D_ij the harmonic mean of the two cells' diffusivities. The
 ;;; matrix is symmetric positive definite, so it is solved by conjugate
 ;;; gradient with a Jacobi (diagonal) preconditioner. It is also an
 ;;; M-matrix, so the step obeys a discrete maximum principle: no new extrema
@@ -80,57 +81,60 @@ Signals an error if MAX-ITERATIONS pass without convergence."
                    (setf (aref p i) (+ (aref z i) (* (/ rz-new rz) (aref p i)))))
                  (setf rz rz-new))))))
 
-(defun implicit-matrix-product (stencil coefficient x)
-  "Return a fresh vector (A + COEFFICIENT K) X, with A the cell areas and K
-the two-point-flux matrix of STENCIL. COEFFICIENT is dt * D for a backward
-Euler step."
+(defun implicit-matrix-product (stencil dt diffusivity x)
+  "Return a fresh vector (A + DT K) X, with A the cell areas and K the
+two-point-flux matrix of STENCIL weighted by face diffusivity (harmonic mean
+of DIFFUSIVITY, one value per cell) - the backward Euler matrix."
   (let* ((areas (flux-stencil-areas stencil))
          (n (length areas))
          (y (make-array n :element-type 'double-float)))
     (dotimes (i n y)
       (setf (aref y i) (- (* (aref areas i) (aref x i))
-                          (* coefficient (stencil-net-flux stencil x i)))))))
+                          (* dt (stencil-net-flux stencil x diffusivity i)))))))
 
-(defun implicit-inverse-diagonal (stencil coefficient)
-  "Return a fresh vector of 1 / (A_i + COEFFICIENT * sum of cell I's face
-conductances): the Jacobi preconditioner for IMPLICIT-MATRIX-PRODUCT."
+(defun implicit-inverse-diagonal (stencil dt diffusivity)
+  "Return a fresh vector of 1 / (A_i + DT * STENCIL-TOTAL-CONDUCTANCE): the
+Jacobi preconditioner for IMPLICIT-MATRIX-PRODUCT with the same arguments."
   (let* ((areas (flux-stencil-areas stencil))
          (inverse (make-array (length areas) :element-type 'double-float)))
     (dotimes (i (length areas) inverse)
       (setf (aref inverse i)
-            (/ 1.0d0 (+ (aref areas i) (* coefficient (stencil-total-conductance stencil i))))))))
+            (/ 1.0d0 (+ (aref areas i) (* dt (stencil-total-conductance stencil diffusivity i))))))))
 
-(defun implicit-diffusion-column (stencil coefficient column &key (tolerance *implicit-tolerance*))
-  "Return the field after one backward Euler diffusion step from COLUMN (one
-species' concentrations): the solution of (A + COEFFICIENT K) c' = A COLUMN,
-with COEFFICIENT = dt * D. Second value: the number of CG iterations."
+(defun implicit-diffusion-column (stencil dt diffusivity column
+                                  &key (tolerance *implicit-tolerance*))
+  "Return the field after one backward Euler diffusion step of DT from
+COLUMN (one species' concentrations), with DIFFUSIVITY that species' value
+in each cell: the solution of (A + DT K) c' = A COLUMN. Second value: the
+number of CG iterations."
   (let* ((areas (flux-stencil-areas stencil))
          (b (map '(simple-array double-float (*)) #'* areas column)))
     (multiple-value-bind (solution iterations)
-        (conjugate-gradient (lambda (v) (implicit-matrix-product stencil coefficient v))
+        (conjugate-gradient (lambda (v) (implicit-matrix-product stencil dt diffusivity v))
                             b column
-                            :inverse-diagonal (implicit-inverse-diagonal stencil coefficient)
+                            :inverse-diagonal (implicit-inverse-diagonal stencil dt diffusivity)
                             :tolerance tolerance)
       (values solution iterations))))
 
 (defun implicit-diffusion-substep! (world dt &key (tolerance *implicit-tolerance*))
   "Advance every mobile species of WORLD by DT of backward Euler
-finite-volume diffusion (see the file header), stable at any DT. Immobile
-species (diffusivity 0.0d0) pass through unchanged. Returns WORLD, and as
+finite-volume diffusion (see the file header), stable at any DT, with the
+world's per-cell diffusivities. Species with zero diffusivity in every cell
+pass through unchanged. Returns WORLD, and as
 second value the largest number of CG iterations any species needed."
   (let* ((stencil (mechanistic-world-stencil world))
          (old-state (mechanistic-world-state world))
          (new-state (alexandria:copy-array old-state))
+         (diffusivities (mechanistic-world-diffusivities world))
          (max-iterations 0))
-    (loop for sp in (mechanistic-world-species-list world)
-          for s from 0
-          for d = (species-diffusivity sp)
-          when (plusp d)
-            do (multiple-value-bind (column iterations)
-                   (implicit-diffusion-column stencil (* dt d) (state-column old-state s)
-                                              :tolerance tolerance)
-                 (setf max-iterations (max max-iterations iterations))
-                 (dotimes (i (length column))
-                   (setf (aref new-state i s) (aref column i)))))
+    (dotimes (s (mechanistic-world-n-species world))
+      (let ((diffusivity (state-column diffusivities s)))
+        (when (some #'plusp diffusivity)
+          (multiple-value-bind (column iterations)
+              (implicit-diffusion-column stencil dt diffusivity (state-column old-state s)
+                                         :tolerance tolerance)
+            (setf max-iterations (max max-iterations iterations))
+            (dotimes (i (length column))
+              (setf (aref new-state i s) (aref column i)))))))
     (setf (mechanistic-world-state world) new-state)
     (values world max-iterations)))

@@ -18,7 +18,9 @@ stability condition
 
 (see FACE-CONDUCTANCE, MAKE-FLUX-STENCIL) is computed, and the minimum
 across every cell/species is returned, scaled by SAFETY-FACTOR. The largest
-diffusivity always gives the smallest bound, so only it is used.
+diffusivity always gives the smallest bound, so only it is used. This is
+for species' uniform diffusivities; a world with a per-cell diffusivity
+field uses WORLD-STABLE-TIMESTEP.
 Immobile species (diffusivity 0.0d0) don't constrain anything and are
 skipped. This is a heuristic bound - validated empirically by the CFL
 boundary test in tests/mechanistic-tests.lisp (state stays bounded at/under
@@ -26,13 +28,9 @@ it, diverges meaningfully above it), not a proof of stability for the
 coupled reaction-diffusion system as a whole, since reaction kinetics can
 independently impose their own stiffness constraint that this doesn't see."
   (let* ((stencil (make-flux-stencil tessellation (make-cell-index tessellation)))
-         (areas (flux-stencil-areas stencil))
-         (max-d (reduce #'max species :key #'species-diffusivity :initial-value 0.0d0))
-         (bounds (loop for i below (length areas)
-                       for g = (stencil-total-conductance stencil i)
-                       when (and (plusp g) (plusp max-d))
-                         collect (/ (aref areas i) (* 2.0d0 max-d g)))))
-    (* safety-factor (reduce #'min bounds :initial-value sb-ext:double-float-positive-infinity))))
+         (max-d (reduce #'max species :key #'species-diffusivity :initial-value 0.0d0)))
+    (stencil-stable-timestep stencil (uniform-column (length (flux-stencil-areas stencil)) max-d)
+                             :safety-factor safety-factor)))
 
 (defparameter *reaction-underflow-epsilon* 1.0d-9
   "How far below zero RK4-CELL-REACTION! will tolerate before snapping a
@@ -90,10 +88,12 @@ PMAP-CELL-RANGE!."
 
 (defun diffusion-substep! (world dt)
   "Advance every mobile species by DT of explicit finite-volume diffusion:
-flux from neighbor J into cell I is D * FACE-CONDUCTANCE(I,J) * (C_J - C_I),
+flux from neighbor J into cell I is D_face * FACE-CONDUCTANCE(I,J) *
+\(C_J - C_I), D_face the harmonic mean of the two cells' diffusivities,
 summed over neighbors (STENCIL-NET-FLUX on the world's precomputed
-FLUX-STENCIL) and divided by cell I's own area.
-Immobile species (diffusivity 0.0d0) pass through unchanged. Reads only the
+FLUX-STENCIL) and divided by cell I's own area. Species with zero
+diffusivity in every cell pass through unchanged. DT must respect
+WORLD-STABLE-TIMESTEP. Reads only the
 tick's starting state (double-buffered via a fresh array, then swapped in)
 so it's safe to parallelize with PMAP-CELL-RANGE! even though every cell's
 new value depends on its neighbors' old ones - the standard safe way to do
@@ -102,21 +102,20 @@ a synchronous CA-style update."
          (areas (flux-stencil-areas stencil))
          (n-cells (length areas))
          (n-species (mechanistic-world-n-species world))
-         (species-list (mechanistic-world-species-list world))
+         (diffusivities (mechanistic-world-diffusivities world))
          (old-state (mechanistic-world-state world))
          (new-state (make-array (list n-cells n-species) :element-type 'double-float)))
     (dotimes (i n-cells)
       (dotimes (s n-species) (setf (aref new-state i s) (aref old-state i s))))
-    (loop for sp in species-list
-          for s from 0
-          for d = (species-diffusivity sp)
-          when (plusp d)
-            do (let ((column (state-column old-state s)))
-                 (pmap-cell-range!
-                  n-cells
-                  (lambda (i)
-                    (incf (aref new-state i s)
-                          (* dt (/ d (aref areas i)) (stencil-net-flux stencil column i)))))))
+    (dotimes (s n-species)
+      (let ((diffusivity (state-column diffusivities s)))
+        (when (some #'plusp diffusivity)
+          (let ((column (state-column old-state s)))
+            (pmap-cell-range!
+             n-cells
+             (lambda (i)
+               (incf (aref new-state i s)
+                     (* (/ dt (aref areas i)) (stencil-net-flux stencil column diffusivity i)))))))))
     (setf (mechanistic-world-state world) new-state))
   world)
 

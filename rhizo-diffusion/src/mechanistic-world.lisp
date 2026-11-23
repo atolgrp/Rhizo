@@ -22,12 +22,40 @@
   reactions
   n-species
   state           ; (array double-float (n-cells n-species)) - current tick
+  diffusivities   ; (array double-float (n-cells n-species)) - D of each species in
+                  ; each cell; faces use the harmonic mean (flux-stencil.lisp)
   dt
   (diffusion-scheme :explicit) ; :EXPLICIT or :IMPLICIT - see STEP-MECHANISTIC!
   (tick 0 :type fixnum))
 
+(defun diffusivity-array (cell-index species diffusivity-field)
+  "Return a fresh (array double-float (n-cells n-species)) of diffusivities
+in CELL-INDEX order: each species' SPECIES-DIFFUSIVITY in every cell, except
+for species named in DIFFUSIVITY-FIELD, an alist (species-name . function of
+a cell-id returning that cell's diffusivity). Signals an error on a negative
+value or an unknown species name."
+  (let* ((n-cells (cell-index-count cell-index))
+         (array (make-array (list n-cells (length species)) :element-type 'double-float)))
+    (dolist (entry diffusivity-field)
+      (unless (find (car entry) species :key #'species-name)
+        (error "DIFFUSIVITY-ARRAY: unknown species ~s" (car entry))))
+    (loop for sp in species
+          for s from 0
+          for field = (cdr (assoc (species-name sp) diffusivity-field))
+          do (dotimes (i n-cells)
+               (let ((d (float (if field
+                                   (funcall field (index->cell-id cell-index i))
+                                   (species-diffusivity sp))
+                               1.0d0)))
+                 (when (minusp d)
+                   (error "DIFFUSIVITY-ARRAY: negative diffusivity ~a for ~s in cell ~s"
+                          d (species-name sp) (index->cell-id cell-index i)))
+                 (setf (aref array i s) d))))
+    array))
+
 (defun make-mechanistic-world (tessellation &key species reactions dt initial-state
-                                                  (diffusion-scheme :explicit))
+                                                  (diffusion-scheme :explicit)
+                                                  diffusivity-field)
   "Build a fresh MECHANISTIC-WORLD over TESSELLATION. SPECIES/REACTIONS
 define the reaction network (see reaction-network.lisp; the
 MAKE-PFAS-RHIZOBIOME-* functions below build the concrete v1 set). DT is
@@ -37,7 +65,10 @@ given TESSELLATION/SPECIES pair. INITIAL-STATE is either an alist
 cell-id returning such an alist - so a source-region seeding pattern (like
 SEED-MOLECULES-AT! in diffusion.lisp) is possible. DIFFUSION-SCHEME is
 :EXPLICIT (DIFFUSION-SUBSTEP!, DT must respect STABLE-TIMESTEP) or :IMPLICIT
-\(IMPLICIT-DIFFUSION-SUBSTEP!, backward Euler, stable at any DT)."
+\(IMPLICIT-DIFFUSION-SUBSTEP!, backward Euler, stable at any DT).
+DIFFUSIVITY-FIELD gives species a per-cell diffusivity (see
+DIFFUSIVITY-ARRAY); other species use their SPECIES-DIFFUSIVITY everywhere.
+SET-SPECIES-DIFFUSIVITY! changes it during a run."
   (unless (member diffusion-scheme '(:explicit :implicit))
     (error "MAKE-MECHANISTIC-WORLD: unknown diffusion scheme ~s" diffusion-scheme))
   (let* ((cell-index (make-cell-index tessellation))
@@ -57,7 +88,35 @@ SEED-MOLECULES-AT! in diffusion.lisp) is possible. DIFFUSION-SCHEME is
      :stencil (make-flux-stencil tessellation cell-index)
      :species-list species :species-index species-index :reactions reactions
      :n-species n-species :state state :dt (float dt 1.0d0) :tick 0
+     :diffusivities (diffusivity-array cell-index species diffusivity-field)
      :diffusion-scheme diffusion-scheme)))
+
+(defun set-species-diffusivity! (world species-name field)
+  "Set the diffusivity of SPECIES-NAME in every cell of WORLD to (FUNCALL
+FIELD cell-id), e.g. when water content changes (PLAN.md, Phase 3). Changes
+only WORLD's diffusivity array. Signals an error on a negative value.
+Returns WORLD."
+  (let* ((index (mechanistic-world-cell-index world))
+         (s (or (gethash species-name (mechanistic-world-species-index world))
+                (error "SET-SPECIES-DIFFUSIVITY!: unknown species ~s" species-name)))
+         (array (mechanistic-world-diffusivities world)))
+    (dotimes (i (cell-index-count index) world)
+      (let ((d (float (funcall field (index->cell-id index i)) 1.0d0)))
+        (when (minusp d)
+          (error "SET-SPECIES-DIFFUSIVITY!: negative diffusivity ~a in cell ~s"
+                 d (index->cell-id index i)))
+        (setf (aref array i s) d)))))
+
+(defun world-stable-timestep (world &key (safety-factor 0.9d0))
+  "Return the explicit-diffusion stability bound for WORLD's own per-cell
+diffusivities: the smallest STENCIL-STABLE-TIMESTEP over its species.
+Infinity if nothing diffuses."
+  (let ((stencil (mechanistic-world-stencil world))
+        (diffusivities (mechanistic-world-diffusivities world)))
+    (reduce #'min (loop for s below (mechanistic-world-n-species world)
+                        collect (stencil-stable-timestep stencil (state-column diffusivities s)
+                                                         :safety-factor safety-factor))
+            :initial-value sb-ext:double-float-positive-infinity)))
 
 (defun field-initial-state (tessellation fields)
   "Return a function of one cell-id, suitable as MAKE-MECHANISTIC-WORLD's

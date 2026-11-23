@@ -152,6 +152,10 @@
    #:mechanistic-world-dt
    #:mechanistic-world-tick
    #:mechanistic-world-diffusion-scheme
+   #:mechanistic-world-diffusivities
+   #:diffusivity-array
+   #:set-species-diffusivity!
+   #:world-stable-timestep
    #:field-initial-state
    #:make-pfas-rhizobiome-species
    #:make-pfas-rhizobiome-reactions
@@ -167,6 +171,9 @@
    #:flux-stencil-areas
    #:stencil-total-conductance
    #:stencil-net-flux
+   #:harmonic-mean
+   #:stencil-stable-timestep
+   #:uniform-column
    #:state-column
 
    ;; implicit (backward Euler) diffusion

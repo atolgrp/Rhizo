@@ -17,7 +17,7 @@
     (is (equalp #(1 0) (flux-stencil-neighbors stencil)))
     (is (equalp #(0.75d0 0.75d0) (flux-stencil-conductances stencil)))
     (is (equalp #(2.0d0 2.0d0) (flux-stencil-areas stencil)))
-    (is (= 0.75d0 (stencil-total-conductance stencil 0)))))
+    (is (= 0.75d0 (stencil-total-conductance stencil (uniform-column 2 1) 0)))))
 
 (test flux-stencil-is-symmetric-and-matches-the-protocol
   (let* ((tess (voronoi-grid-tessellation (make-nearest-seed-grid 60 60 25 :seed 3)))
@@ -31,7 +31,7 @@
     (dotimes (i (cell-index-count index))
       (let ((id (index->cell-id index i)))
         (is (= (cell-area tess id) (aref (flux-stencil-areas stencil) i)))
-        (is (< (abs (- (stencil-total-conductance stencil i)
+        (is (< (abs (- (stencil-total-conductance stencil (uniform-column (cell-index-count index) 1) i)
                        (loop for nb in (neighbors-of tess id) sum (face-conductance tess id nb))))
                1d-12))))))
 
@@ -54,8 +54,8 @@
          (index (make-cell-index tess))
          (x (make-array 2 :element-type 'double-float :initial-element 0d0)))
     (setf (aref x (cell-id->index index "0")) 10d0)
-    (is (= -7.5d0 (stencil-net-flux stencil x (cell-id->index index "0"))))
-    (is (= 7.5d0 (stencil-net-flux stencil x (cell-id->index index "1"))))))
+    (is (= -7.5d0 (stencil-net-flux stencil x (uniform-column 2 1) (cell-id->index index "0"))))
+    (is (= 7.5d0 (stencil-net-flux stencil x (uniform-column 2 1) (cell-id->index index "1"))))))
 
 (test state-column-copies-one-species
   (let ((state (make-array '(3 2) :element-type 'double-float

@@ -49,7 +49,8 @@
                (:file "mechanistic-tests")
                (:file "flux-stencil-tests")
                (:file "accuracy-tests")
-               (:file "implicit-diffusion-tests"))
+               (:file "implicit-diffusion-tests")
+               (:file "diffusivity-field-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

@@ -60,26 +60,64 @@ order and each row's faces in NEIGHBORS-OF order. Faces of zero conductance
     (%make-flux-stencil :offsets offsets :neighbors neighbors
                         :conductances conductances :areas areas)))
 
-(defun stencil-total-conductance (stencil i)
-  "Return the sum of the conductances of every face of cell I in STENCIL."
-  (let ((offsets (flux-stencil-offsets stencil))
-        (conductances (flux-stencil-conductances stencil)))
-    (loop for k from (aref offsets i) below (aref offsets (1+ i))
-          sum (aref conductances k) of-type double-float)))
+(declaim (inline harmonic-mean)) ; called once per face per step in the loops below
+(defun harmonic-mean (a b)
+  "Return the harmonic mean 2ab / (a + b) of the non-negative numbers A and
+B, as a double-float; 0 when either is 0. This is the face diffusivity
+between two cells of diffusivity A and B on a Voronoi grid: the face bisects
+the seed-to-seed segment, so the flux crosses two equal half-lengths in
+series, and series resistances add. A cell of zero diffusivity is a barrier."
+  (if (or (zerop a) (zerop b))
+      0.0d0
+      (/ (* 2.0d0 a b) (+ a b))))
 
-(defun stencil-net-flux (stencil x i)
+(defun stencil-total-conductance (stencil diffusivity i)
+  "Return the sum over cell I's faces in STENCIL of face diffusivity times
+conductance, the face diffusivity being the HARMONIC-MEAN of DIFFUSIVITY (a
+double-float vector, one value per cell) on either side. This is the
+diagonal entry of the diffusion matrix for row I."
+  (let ((offsets (flux-stencil-offsets stencil))
+        (neighbors (flux-stencil-neighbors stencil))
+        (conductances (flux-stencil-conductances stencil)))
+    (declare (type (simple-array double-float (*)) diffusivity))
+    (loop for k from (aref offsets i) below (aref offsets (1+ i))
+          sum (* (aref conductances k)
+                 (harmonic-mean (aref diffusivity i) (aref diffusivity (aref neighbors k))))
+            of-type double-float)))
+
+(defun stencil-net-flux (stencil x diffusivity i)
   "Return the net diffusive inflow into cell I of the field X (a
-\(simple-array double-float (n-cells)), one species), per unit diffusivity:
-sum over faces of conductance * (x_j - x_i), i.e. -(K x)_i. Divide by the
-cell's area and multiply by the diffusivity to get dx_i/dt."
+\(simple-array double-float (n-cells)), one species): the sum over faces of
+D_face * conductance * (x_j - x_i), with D_face the HARMONIC-MEAN of
+DIFFUSIVITY (one value per cell) on either side; i.e. -(K x)_i. Divide by
+the cell's area to get dx_i/dt."
   (let ((offsets (flux-stencil-offsets stencil))
         (neighbors (flux-stencil-neighbors stencil))
         (conductances (flux-stencil-conductances stencil))
-        (xi (aref x i)))
-    (declare (type (simple-array double-float (*)) x) (type double-float xi))
+        (xi (aref x i))
+        (di (aref diffusivity i)))
+    (declare (type (simple-array double-float (*)) x diffusivity)
+             (type double-float xi di))
     (loop for k from (aref offsets i) below (aref offsets (1+ i))
-          sum (* (aref conductances k) (- (aref x (aref neighbors k)) xi))
+          for j = (aref neighbors k)
+          sum (* (aref conductances k) (harmonic-mean di (aref diffusivity j)) (- (aref x j) xi))
             of-type double-float)))
+
+(defun stencil-stable-timestep (stencil diffusivity &key (safety-factor 0.9d0))
+  "Return SAFETY-FACTOR times the smallest area_i / (2 * STENCIL-TOTAL-
+CONDUCTANCE) over the cells of STENCIL with DIFFUSIVITY (one value per
+cell): the explicit-diffusion stability bound. Cells with no conducting
+face do not constrain it; infinity if none conducts."
+  (let ((areas (flux-stencil-areas stencil)))
+    (* safety-factor
+       (reduce #'min (loop for i below (length areas)
+                           for g = (stencil-total-conductance stencil diffusivity i)
+                           when (plusp g) collect (/ (aref areas i) (* 2.0d0 g)))
+               :initial-value sb-ext:double-float-positive-infinity))))
+
+(defun uniform-column (n value)
+  "Return a fresh (simple-array double-float (N)) filled with VALUE."
+  (make-array n :element-type 'double-float :initial-element (float value 1.0d0)))
 
 (defun state-column (state s)
   "Return a fresh (simple-array double-float (n-cells)) copy of column S

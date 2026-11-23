@@ -51,17 +51,17 @@
                                      :max-iterations 1)))
 
 (test implicit-matrix-product-and-diagonal-by-hand
-  ;; areas 2, conductance 3/4 = 0.75, coefficient 0.5, x = (10, 0):
+  ;; areas 2, conductance 3/4 = 0.75, D = 1, dt 0.5, x = (10, 0):
   ;; (A + 0.5 K) x = (20 + 0.5 * 0.75 * 10, 0 - 0.5 * 0.75 * 10)
   (let* ((tess (two-cell-tessellation 2.0d0 3.0d0 4.0d0))
          (index (make-cell-index tess))
          (stencil (make-flux-stencil tess index))
          (x (make-array 2 :element-type 'double-float :initial-element 0d0)))
     (setf (aref x (cell-id->index index "0")) 10d0)
-    (let ((y (implicit-matrix-product stencil 0.5d0 x)))
+    (let ((y (implicit-matrix-product stencil 0.5d0 (uniform-column 2 1) x)))
       (is (= 23.75d0 (aref y (cell-id->index index "0"))))
       (is (= -3.75d0 (aref y (cell-id->index index "1")))))
-    (is (equalp (dvec (/ 1 2.375d0) (/ 1 2.375d0)) (implicit-inverse-diagonal stencil 0.5d0)))))
+    (is (equalp (dvec (/ 1 2.375d0) (/ 1 2.375d0)) (implicit-inverse-diagonal stencil 0.5d0 (uniform-column 2 1))))))
 
 (test implicit-two-cell-matches-backward-euler-exactly
   ;; Backward Euler on the two-compartment problem: the difference shrinks
