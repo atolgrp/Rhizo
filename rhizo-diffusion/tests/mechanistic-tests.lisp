@@ -10,17 +10,48 @@ reaction-network side of the mechanistic engine."
     (ensure-cell! adjacency "only")
     (setf (gethash "only" cell-areas) area)
     (make-hash-graph-tessellation adjacency :cell-areas cell-areas
-                                             :edge-lengths (make-hash-table :test 'equal))))
+                                             :edge-lengths (make-hash-table :test 'equal)
+                                             :face-distances (make-hash-table :test 'equal))))
 
-(defun two-cell-tessellation (area edge-len distance)
+(defun two-cell-tessellation (area edge-len distance &key (hop-weight distance))
+  "Two cells of AREA joined by one face of length EDGE-LEN, with value
+points DISTANCE apart. HOP-WEIGHT is the topological EDGE-WEIGHT, which the
+finite-volume engine must ignore; it defaults to DISTANCE."
   (let ((adjacency (make-hash-table :test 'equal))
         (cell-areas (make-hash-table :test 'equal))
         (edge-lengths (make-hash-table :test 'equal)))
-    (add-edge! adjacency "0" "1" distance)
+    (add-edge! adjacency "0" "1" hop-weight)
     (setf (gethash "0" cell-areas) area)
     (setf (gethash "1" cell-areas) area)
     (set-edge-length! edge-lengths "0" "1" edge-len)
-    (make-hash-graph-tessellation adjacency :cell-areas cell-areas :edge-lengths edge-lengths)))
+    (make-hash-graph-tessellation
+     adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+               :face-distances (face-distances-from-positions
+                                adjacency (lambda (id) (if (string= id "0") '(0 . 0) (cons distance 0)))))))
+
+(test face-conductance-is-edge-length-over-face-distance
+  (let ((tess (two-cell-tessellation 1.0d0 3.0d0 2.0d0 :hop-weight 1.0d0)))
+    (is (= 1.5d0 (face-conductance tess "0" "1")))
+    (is (= 1.5d0 (face-conductance tess "1" "0")))))
+
+(test diffusion-reads-face-distance-not-edge-weight
+  ;; The defect of 2026-11-23 in miniature: hop weight 1.0, true distance 4.0.
+  ;; Exchange rate k = D * L / (d * area) must use d = 4, so the two cells'
+  ;; difference decays as exp(-2kt) with k = 1 * 1 / (4 * 1) = 0.25, not 1.0.
+  ;; STABLE-TIMESTEP must likewise scale with d: 1 / (2 * D * L/d) = 2.0.
+  (let* ((tess (two-cell-tessellation 1.0d0 1.0d0 4.0d0 :hop-weight 1.0d0))
+         (species (list (make-species :name :c :diffusivity 1.0d0)))
+         (dt 0.01d0) (n-steps 200)
+         (world (make-mechanistic-world
+                 tess :species species :reactions '() :dt dt
+                      :initial-state (lambda (id) (if (string= id "0") '((:c . 10.0d0)) '((:c . 0.0d0)))))))
+    (is (< (abs (- (stable-timestep tess species :safety-factor 1.0d0) 2.0d0)) 1d-12))
+    (dotimes (i n-steps) (step-mechanistic! world))
+    (let ((difference (- (cell-species-value world "0" :c) (cell-species-value world "1" :c)))
+          (expected (* 10.0d0 (exp (* -2.0d0 0.25d0 dt n-steps)))))
+      ;; explicit Euler's own error here is 0.009; k = 1.0 would give 0.18 vs 3.68
+      (is (< (abs (- difference expected)) 0.02d0)
+          "C0 - C1: expected ~a (k from face distance) got ~a" expected difference))))
 
 (defun cell-species-value (world cell-id species-name)
   (aref (mechanistic-world-state world)

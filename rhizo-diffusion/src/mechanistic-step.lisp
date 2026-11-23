@@ -9,6 +9,13 @@
 ;;; either one degrading the other's accuracy, and it keeps each half's own
 ;;; parallel structure clean (see REACTION-SUBSTEP!/DIFFUSION-SUBSTEP!).
 
+(defun face-conductance (tessellation a b)
+  "Return the geometric conductance EDGE-LENGTH / FACE-DISTANCE of the face
+between adjacent cells A and B - the two-point flux across it, per unit
+diffusivity and unit concentration difference. Zero for cells that touch
+only at a corner (EDGE-LENGTH 0)."
+  (/ (edge-length tessellation a b) (face-distance tessellation a b)))
+
 (defun stable-timestep (tessellation species &key (safety-factor 0.9d0))
   "A conservative CFL-style bound on the explicit diffusion timestep: for
 every cell and every mobile species, the classic explicit-diffusion
@@ -16,7 +23,7 @@ stability condition
 
     area / (2 * diffusivity * sum-of-neighbor-conductances)
 
-(conductance of an edge = edge-length / distance) is computed, and the
+(see FACE-CONDUCTANCE) is computed, and the
 minimum across every cell/species is returned, scaled by SAFETY-FACTOR.
 Immobile species (diffusivity 0.0d0) don't constrain anything and are
 skipped. This is a heuristic bound - validated empirically by the CFL
@@ -29,10 +36,8 @@ independently impose their own stiffness constraint that this doesn't see."
       (when (plusp (species-diffusivity sp))
         (dolist (id (cell-ids tessellation))
           (let ((area (cell-area tessellation id))
-                (conductance 0.0d0))
-            (dolist (nb (neighbors-of tessellation id))
-              (incf conductance (/ (edge-length tessellation id nb)
-                                    (edge-weight tessellation id nb))))
+                (conductance (loop for nb in (neighbors-of tessellation id)
+                                   sum (face-conductance tessellation id nb))))
             (when (plusp conductance)
               (setf bound (min bound
                                 (/ area (* 2.0d0 (species-diffusivity sp) conductance)))))))))
@@ -94,8 +99,8 @@ PMAP-CELL-RANGE!."
 
 (defun diffusion-substep! (world dt)
   "Advance every mobile species by DT of explicit finite-volume diffusion:
-flux from neighbor J into cell I is D * edge-length(I,J)/distance(I,J) *
-(C_J - C_I), summed over neighbors and divided by cell I's own area.
+flux from neighbor J into cell I is D * FACE-CONDUCTANCE(I,J) * (C_J - C_I),
+summed over neighbors and divided by cell I's own area.
 Immobile species (diffusivity 0.0d0) pass through unchanged. Reads only the
 tick's starting state (double-buffered via a fresh array, then swapped in)
 so it's safe to parallelize with PMAP-CELL-RANGE! even though every cell's
@@ -116,7 +121,7 @@ a synchronous CA-style update."
        (let ((id (index->cell-id cell-index i)))
          (dolist (nb-id (neighbors-of tess id))
            (let ((j (cell-id->index cell-index nb-id))
-                 (conductance (/ (edge-length tess id nb-id) (edge-weight tess id nb-id)))
+                 (conductance (face-conductance tess id nb-id))
                  (area (cell-area tess id)))
              (loop for sp in species-list
                    for s from 0

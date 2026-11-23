@@ -55,7 +55,48 @@ can be checked precisely. Small enough to check everything by hand."
   ;; LINEAR-REGRESSION's zero-variance case.
   (let ((tess (make-hash-graph-tessellation (tiny-square-adjacency))))
     (signals error (cell-area tess 0))
-    (signals error (edge-length tess 0 1))))
+    (signals error (edge-length tess 0 1))
+    (signals error (face-distance tess 0 1))))
+
+(defun tiny-square-positions (id)
+  "Corners of a 3 x 4 rectangle for the 0-1-2-3 ring: sides 3 and 4."
+  (ecase id (0 '(0 . 0)) (1 '(3 . 0)) (2 '(3 . 4)) (3 '(0 . 4))))
+
+(test point-distance-is-double-precision-for-integer-points
+  ;; Pixel seeds are integer conses; SQRT of an integer would otherwise be
+  ;; a single-float, losing about 8 digits before any flux is computed.
+  (is (eql 5.0d0 (point-distance '(0 . 0) '(3 . 4))))
+  (is (typep (point-distance '(0 . 0) '(1 . 1)) 'double-float))
+  (is (= (sqrt 2.0d0) (point-distance '(0 . 0) '(1 . 1)))))
+
+(test face-distances-from-positions-is-symmetric-euclidean
+  (let ((distances (face-distances-from-positions (tiny-square-adjacency)
+                                                  #'tiny-square-positions)))
+    (flet ((d (a b) (cdr (assoc b (gethash a distances)))))
+      (is (= 3.0d0 (d 0 1) (d 1 0)))
+      (is (= 4.0d0 (d 1 2) (d 2 1)))
+      (is (= 3.0d0 (d 2 3) (d 3 2)))
+      (is (= 4.0d0 (d 3 0) (d 0 3)))
+      (is (null (d 0 2)) "only adjacent pairs get a distance")
+      (is (= 2 (length (gethash 0 distances))) "no duplicate entries"))))
+
+(test face-distances-from-positions-rejects-coincident-positions
+  (signals error (face-distances-from-positions (tiny-square-adjacency)
+                                                (lambda (id) (declare (ignore id)) '(1 . 1)))))
+
+(test face-distance-is-independent-of-edge-weight
+  ;; The point of FACE-DISTANCE: the ring's EDGE-WEIGHTs are 1, 2, 3, 4,
+  ;; but its face distances come from the rectangle's corners.
+  (let ((tess (make-hash-graph-tessellation
+               (tiny-square-adjacency)
+               :face-distances (face-distances-from-positions (tiny-square-adjacency)
+                                                              #'tiny-square-positions))))
+    (is (= 1.0d0 (edge-weight tess 0 1)))
+    (is (= 3.0d0 (face-distance tess 0 1)))
+    (is (= 2.0d0 (edge-weight tess 1 2)))
+    (is (= 4.0d0 (face-distance tess 1 2)))
+    (is (= 4.0d0 (face-distance tess 2 1)))
+    (signals error (face-distance tess 0 2) "non-adjacent pair has no face distance")))
 
 (test hash-graph-tessellation-with-geometry
   (let ((tess (make-hash-graph-tessellation
@@ -94,4 +135,24 @@ can be checked precisely. Small enough to check everything by hand."
       (is (= 2 (length pairs)) "a 1x3 row of singleton cells should have exactly 2 adjacent pairs")
       (dolist (pair pairs)
         (is (= 1.0d0 (edge-length tess (first pair) (second pair))))
-        (is (= 1.0d0 (edge-length tess (second pair) (first pair))))))))
+        (is (= 1.0d0 (edge-length tess (second pair) (first pair))))
+        ;; every pixel is its own seed, so neighbouring seeds are 1 apart
+        (is (= 1.0d0 (face-distance tess (first pair) (second pair))))))))
+
+(test ca-voronoi-grid-keeps-uniform-edge-weight-and-gets-seed-distances
+  ;; The CA-grown builder's EDGE-WEIGHT must stay 1.0 everywhere so the
+  ;; isotropy study reproduces (CLAUDE.md, rule 1). FACE-DISTANCE is added
+  ;; next to it: seed points are distinct integer pixels, so every face
+  ;; distance is at least 1 and, on a 40x40 grid with 16 seeds, almost
+  ;; all are well above 1.
+  (let* ((tess (voronoi-grid-tessellation (make-voronoi-grid 40 40 16 :seed 11)))
+         (pairs (loop for a in (cell-ids tess)
+                      append (loop for b in (neighbors-of tess a) collect (cons a b))))
+         (distances (mapcar (lambda (p) (face-distance tess (car p) (cdr p))) pairs)))
+    (is (every (lambda (p) (= 1.0d0 (edge-weight tess (car p) (cdr p)))) pairs))
+    (is (every (lambda (d) (>= d 1.0d0)) distances))
+    (is (every (lambda (p) (= (face-distance tess (car p) (cdr p))
+                              (face-distance tess (cdr p) (car p))))
+               pairs))
+    (is (> (/ (reduce #'+ distances) (length distances)) 3.0d0)
+        "mean seed spacing on a 40x40 grid with 16 cells should be several pixels")))

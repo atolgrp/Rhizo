@@ -36,11 +36,6 @@ neighboring polygons' rings - hashes identically."
         (cons a b)
         (cons b a))))
 
-(defun point-distance (p0 p1)
-  (let ((dx (- (car p1) (car p0)))
-        (dy (- (cdr p1) (cdr p0))))
-    (sqrt (+ (* dx dx) (* dy dy)))))
-
 (defun region-edges (region)
   "Return a list of (EDGE-KEY . LENGTH) for every boundary edge of
 REGION's ring - EDGE-KEY via CANONICAL-EDGE-KEY (order-independent, so the
@@ -86,9 +81,21 @@ compatible with any caller that only wanted ADJACENCY, as before."
     (values adjacency cell-areas edge-lengths)))
 
 (defun make-gis-tessellation (regions)
-  (multiple-value-bind (adjacency cell-areas edge-lengths) (build-gis-adjacency regions)
-    (make-hash-graph-tessellation
-     adjacency :cell-areas cell-areas :edge-lengths edge-lengths)))
+  "Return a HASH-GRAPH-TESSELLATION over REGIONS with full finite-volume
+geometry. Each region's value is taken to sit at its centroid, so
+FACE-DISTANCE is centroid-to-centroid distance - the same number EDGE-WEIGHT
+holds here, but read through its own accessor (see tessellation.lisp).
+Assumed, not measured: on irregular polygons the centroid-to-centroid
+segment is not in general perpendicular to the shared face, so the
+two-point flux is only approximately consistent there."
+  (let ((centroids (alexandria:alist-hash-table
+                    (mapcar (lambda (r) (cons (region-id r) (region-centroid r))) regions)
+                    :test 'equal)))
+    (multiple-value-bind (adjacency cell-areas edge-lengths) (build-gis-adjacency regions)
+      (make-hash-graph-tessellation
+       adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                 :face-distances (face-distances-from-positions
+                                  adjacency (lambda (id) (gethash id centroids)))))))
 
 (defun tessellation-from-geojson (path)
   "Parse the GeoJSON FeatureCollection at PATH and build a tessellation

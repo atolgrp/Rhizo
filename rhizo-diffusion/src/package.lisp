@@ -10,6 +10,7 @@
    #:edge-weight
    #:cell-area
    #:edge-length
+   #:face-distance
 
    ;; concrete protocol implementation backed by an explicit adjacency table
    #:hash-graph-tessellation
@@ -17,6 +18,7 @@
    #:ensure-cell!
    #:add-edge!
    #:set-edge-length!
+   #:face-distances-from-positions
 
    ;; dense cell-id <-> array-index mapping, for the mechanistic engine
    #:cell-index
@@ -137,6 +139,7 @@
    #:make-pfas-rhizobiome-world
 
    ;; mechanistic stepping
+   #:face-conductance
    #:stable-timestep
    #:rk4-cell-reaction!
    #:reaction-substep!

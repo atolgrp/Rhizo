@@ -63,6 +63,15 @@
       (is (< (abs (- (edge-weight tess (id "A") (id "B")) 2.0d0)) 1d-9))
       (is (< (abs (- (edge-weight tess (id "A") (id "D")) 1.5d0)) 1d-9)))))
 
+(test gis-face-distance-is-centroid-distance
+  ;; Centroids A(0.5,1) B(2.5,1) D(0.5,2.5) E(2.5,2.5) - see fixture header.
+  (multiple-value-bind (tess ids) (fixture-tessellation-and-ids)
+    (flet ((id (l) (cdr (assoc l ids :test #'string=))))
+      (is (< (abs (- (face-distance tess (id "A") (id "B")) 2.0d0)) 1d-9))
+      (is (< (abs (- (face-distance tess (id "B") (id "A")) 2.0d0)) 1d-9))
+      (is (< (abs (- (face-distance tess (id "A") (id "D")) 1.5d0)) 1d-9))
+      (is (< (abs (- (face-distance tess (id "D") (id "E")) 2.0d0)) 1d-9)))))
+
 (test tessellation-from-geojson-end-to-end
   (multiple-value-bind (tess regions) (tessellation-from-geojson *fixture-path*)
     (is (= 6 (cell-count tess)))

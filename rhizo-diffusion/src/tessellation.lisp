@@ -26,8 +26,16 @@ tess a b) and (EDGE-WEIGHT tess b a) are always equal."))
 ;;; Geometry: needed by the mechanistic reaction-diffusion engine
 ;;; (mechanistic-step.lisp) for real finite-volume flux, on top of what
 ;;; topological diffusion (front-propagation, Dijkstra) already uses.
-;;; EDGE-WEIGHT stays centroid distance; EDGE-LENGTH is the length of the
-;;; shared boundary itself - flux needs both: D * edge-length/distance * dC.
+;;; The two-point flux across a face is D * EDGE-LENGTH / FACE-DISTANCE * dC:
+;;; EDGE-LENGTH is the length of the shared boundary, FACE-DISTANCE the
+;;; distance between the two points where the cells hold their values.
+;;;
+;;; FACE-DISTANCE is deliberately NOT EDGE-WEIGHT. EDGE-WEIGHT is the cost
+;;; of one hop for front propagation and Dijkstra; the CA-grown grid sets it
+;;; to 1.0 on every edge, which is right for hop counting and the published
+;;; isotropy study but wrong as a flux distance (real seed spacing on a
+;;; 200x200 grid with 400 cells is 3-22 pixels - PLAN.md, Phase 1). Keeping
+;;; the two apart lets each caller read the quantity it actually means.
 ;;;
 ;;; Deliberately NOT defaulted to 1.0 for tessellations without geometry
 ;;; data (e.g. hand-built test fixtures for the topological-only tests) -
@@ -42,6 +50,13 @@ for volume, used to convert flux into a concentration rate)."))
 (defgeneric edge-length (tessellation a b)
   (:documentation "Return the length of the shared boundary between
 adjacent cells A and B in TESSELLATION. Symmetric, like EDGE-WEIGHT."))
+
+(defgeneric face-distance (tessellation a b)
+  (:documentation "Return the distance between the points at which
+adjacent cells A and B hold their values - the d of the two-point
+finite-volume flux D * EDGE-LENGTH / d * (C_b - C_a). Seed-to-seed distance
+for Voronoi grids, centroid distance for GIS polygons. Always positive and
+symmetric. Not the same as EDGE-WEIGHT - see the comment above."))
 
 ;;; The one concrete implementation used everywhere in this project: an
 ;;; explicit adjacency table, id -> alist of (neighbor-id . weight). Any
@@ -62,15 +77,21 @@ adjacent cells A and B in TESSELLATION. Symmetric, like EDGE-WEIGHT."))
 this tessellation was built without geometry data - see CELL-AREA.")
    (edge-lengths :initarg :edge-lengths :initform nil :reader tessellation-edge-lengths
                  :documentation "EQUAL hash-table: cell-id -> alist of
-(neighbor-id . length), or NIL if built without geometry data - see EDGE-LENGTH.")))
+(neighbor-id . length), or NIL if built without geometry data - see EDGE-LENGTH.")
+   (face-distances :initarg :face-distances :initform nil :reader tessellation-face-distances
+                   :documentation "EQUAL hash-table: cell-id -> alist of
+(neighbor-id . distance), or NIL if built without geometry data - see
+FACE-DISTANCE and FACE-DISTANCES-FROM-POSITIONS.")))
 
-(defun make-hash-graph-tessellation (adjacency &key cell-areas edge-lengths)
-  "CELL-AREAS and EDGE-LENGTHS are optional - omit them (as every existing
-caller before the mechanistic engine did) to get a tessellation that still
-supports every topological operation (NEIGHBORS-OF, EDGE-WEIGHT, front
-propagation, Dijkstra), just not CELL-AREA/EDGE-LENGTH."
+(defun make-hash-graph-tessellation (adjacency &key cell-areas edge-lengths face-distances)
+  "Return a HASH-GRAPH-TESSELLATION over ADJACENCY. CELL-AREAS,
+EDGE-LENGTHS and FACE-DISTANCES are optional - omit them (as every
+topological-only caller does) to get a tessellation that still supports
+every topological operation (NEIGHBORS-OF, EDGE-WEIGHT, front propagation,
+Dijkstra), just not the finite-volume geometry."
   (make-instance 'hash-graph-tessellation
-                 :adjacency adjacency :cell-areas cell-areas :edge-lengths edge-lengths))
+                 :adjacency adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                 :face-distances face-distances))
 
 (defmethod cell-ids ((tess hash-graph-tessellation))
   (loop for id being the hash-keys of (tessellation-adjacency tess) collect id))
@@ -109,6 +130,46 @@ not the mechanistic reaction-diffusion engine."))
     ;; point, not a boundary - zero shared length, correctly zero flux.
     (let ((entry (assoc b (gethash a lengths) :test 'equal)))
       (if entry (cdr entry) 0.0d0))))
+
+(defmethod face-distance ((tess hash-graph-tessellation) a b)
+  (let ((distances (tessellation-face-distances tess)))
+    (unless distances
+      (error "FACE-DISTANCE: this tessellation was built without geometry data - ~
+it can only be used for topological diffusion (front-propagation, Dijkstra), ~
+not the mechanistic reaction-diffusion engine."))
+    ;; Unlike EDGE-LENGTH, a missing pair is never a legitimate value: every
+    ;; pair of neighbours has two value points some positive distance apart.
+    (let ((entry (assoc b (gethash a distances) :test 'equal)))
+      (unless entry
+        (error "FACE-DISTANCE: no distance recorded between cells ~s and ~s" a b))
+      (cdr entry))))
+
+(defun point-distance (p0 p1)
+  "Return the Euclidean distance between points P0 and P1, each (x . y),
+as a double-float (integer pixel coordinates are converted first, so the
+square root is never taken in single precision)."
+  (let ((dx (float (- (car p1) (car p0)) 1.0d0))
+        (dy (float (- (cdr p1) (cdr p0)) 1.0d0)))
+    (sqrt (+ (* dx dx) (* dy dy)))))
+
+(defun face-distances-from-positions (adjacency position-of)
+  "Return a fresh EQUAL hash-table cell-id -> alist of (neighbor-id .
+distance), with one symmetric entry for every adjacent pair in ADJACENCY.
+The distance is POINT-DISTANCE between (FUNCALL POSITION-OF a) and
+\(FUNCALL POSITION-OF b) - the points where the two cells hold their
+values. Signals an error if two adjacent cells share a position, because a
+zero distance would make the two-point flux infinite."
+  (let ((distances (make-hash-table :test 'equal)))
+    (maphash (lambda (a neighbors)
+               (ensure-cell! distances a)
+               (dolist (b (mapcar #'car neighbors))
+                 (let ((d (point-distance (funcall position-of a) (funcall position-of b))))
+                   (unless (plusp d)
+                     (error "FACE-DISTANCES-FROM-POSITIONS: adjacent cells ~s and ~s ~
+share the position ~s" a b (funcall position-of a)))
+                   (add-edge! distances a b d))))
+             adjacency)
+    distances))
 
 ;;; Shared by every tessellation builder, so an edge is never accidentally
 ;;; recorded in only one direction.

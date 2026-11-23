@@ -161,7 +161,13 @@ perimeter-counting approximation from raster landscape analysis. Returns
 N-POINTS seed regions. SEED is an integer used to seed this call's own
 random-state (generated and recorded if not supplied), so a run is fully
 reproducible from the returned VORONOI-GRID-SEED, and independent calls
-never share random state - safe to run concurrently."
+never share random state - safe to run concurrently.
+
+Growth, adjacency and the uniform EDGE-WEIGHT of 1.0 are exactly as in
+the published isotropy study. The finite-volume FACE-DISTANCE is added
+alongside them, as seed-to-seed distance (PLAN.md, Phase 1, step 1); it is
+read only by the mechanistic engine. Edge lengths are still staircase
+pixel counts here - see PLAN.md, Phase 1, step 4."
   (let* ((seed (or seed (random most-positive-fixnum (make-random-state t))))
          (random-state (sb-ext:seed-random-state seed))
          (seed-points (random-distinct-points width height n-points random-state))
@@ -170,7 +176,9 @@ never share random state - safe to run concurrently."
     (multiple-value-bind (cell-areas edge-lengths) (build-geometry ids width height)
       (%make-voronoi-grid
        :tessellation (make-hash-graph-tessellation
-                      adjacency :cell-areas cell-areas :edge-lengths edge-lengths)
+                      adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                                :face-distances (face-distances-from-positions
+                                                 adjacency (lambda (id) (aref seed-points id))))
        :width width :height height :ids ids :seed seed))))
 
 (defun voronoi-grid-id-at (grid x y)
