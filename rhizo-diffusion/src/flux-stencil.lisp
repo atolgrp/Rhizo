@@ -67,16 +67,24 @@ order and each row's faces in NEIGHBORS-OF order. Faces of zero conductance
     (loop for k from (aref offsets i) below (aref offsets (1+ i))
           sum (aref conductances k) of-type double-float)))
 
-(defun stencil-net-flux (stencil state i s)
-  "Return the net diffusive inflow into cell I of column S of STATE (an
-\(array double-float (n-cells n-species))), per unit diffusivity:
-sum over faces of conductance * (C_j - C_i). Divide by the cell's area and
-multiply by the diffusivity to get dC_i/dt."
+(defun stencil-net-flux (stencil x i)
+  "Return the net diffusive inflow into cell I of the field X (a
+\(simple-array double-float (n-cells)), one species), per unit diffusivity:
+sum over faces of conductance * (x_j - x_i), i.e. -(K x)_i. Divide by the
+cell's area and multiply by the diffusivity to get dx_i/dt."
   (let ((offsets (flux-stencil-offsets stencil))
         (neighbors (flux-stencil-neighbors stencil))
         (conductances (flux-stencil-conductances stencil))
-        (ci (aref state i s)))
-    (declare (type (array double-float (* *)) state) (type double-float ci))
+        (xi (aref x i)))
+    (declare (type (simple-array double-float (*)) x) (type double-float xi))
     (loop for k from (aref offsets i) below (aref offsets (1+ i))
-          sum (* (aref conductances k) (- (aref state (aref neighbors k) s) ci))
+          sum (* (aref conductances k) (- (aref x (aref neighbors k)) xi))
             of-type double-float)))
+
+(defun state-column (state s)
+  "Return a fresh (simple-array double-float (n-cells)) copy of column S
+\(one species) of STATE, an (array double-float (n-cells n-species))."
+  (let* ((n (array-dimension state 0))
+         (column (make-array n :element-type 'double-float)))
+    (dotimes (i n column)
+      (setf (aref column i) (aref state i s)))))

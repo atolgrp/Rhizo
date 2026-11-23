@@ -23,6 +23,7 @@
                (:file "reaction-network")
                (:file "flux-stencil")
                (:file "mechanistic-world")
+               (:file "implicit-diffusion")
                (:file "mechanistic-step")
                (:file "accuracy"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
@@ -47,7 +48,8 @@
                (:file "reaction-network-tests")
                (:file "mechanistic-tests")
                (:file "flux-stencil-tests")
-               (:file "accuracy-tests"))
+               (:file "accuracy-tests")
+               (:file "implicit-diffusion-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

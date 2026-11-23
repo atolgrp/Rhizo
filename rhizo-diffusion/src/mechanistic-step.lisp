@@ -107,24 +107,35 @@ a synchronous CA-style update."
          (new-state (make-array (list n-cells n-species) :element-type 'double-float)))
     (dotimes (i n-cells)
       (dotimes (s n-species) (setf (aref new-state i s) (aref old-state i s))))
-    (pmap-cell-range!
-     n-cells
-     (lambda (i)
-       (loop for sp in species-list
-             for s from 0
-             for d = (species-diffusivity sp)
-             when (plusp d)
-               do (incf (aref new-state i s)
-                        (* dt (/ d (aref areas i)) (stencil-net-flux stencil old-state i s))))))
+    (loop for sp in species-list
+          for s from 0
+          for d = (species-diffusivity sp)
+          when (plusp d)
+            do (let ((column (state-column old-state s)))
+                 (pmap-cell-range!
+                  n-cells
+                  (lambda (i)
+                    (incf (aref new-state i s)
+                          (* dt (/ d (aref areas i)) (stencil-net-flux stencil column i)))))))
     (setf (mechanistic-world-state world) new-state))
+  world)
+
+(defun scheme-diffusion-substep! (world dt)
+  "Advance WORLD by DT of diffusion with the world's own DIFFUSION-SCHEME:
+DIFFUSION-SUBSTEP! for :EXPLICIT, IMPLICIT-DIFFUSION-SUBSTEP! for
+:IMPLICIT. Returns WORLD."
+  (ecase (mechanistic-world-diffusion-scheme world)
+    (:explicit (diffusion-substep! world dt))
+    (:implicit (implicit-diffusion-substep! world dt)))
   world)
 
 (defun step-mechanistic! (world)
   "Advance WORLD by one tick of its own DT via Strang splitting - reaction
-half-step, full diffusion step, reaction half-step. See the file header."
+half-step, full diffusion step (explicit or backward Euler, per the world's
+DIFFUSION-SCHEME), reaction half-step. See the file header."
   (let ((dt (mechanistic-world-dt world)))
     (reaction-substep! world (/ dt 2.0d0))
-    (diffusion-substep! world dt)
+    (scheme-diffusion-substep! world dt)
     (reaction-substep! world (/ dt 2.0d0)))
   (incf (mechanistic-world-tick world))
   world)

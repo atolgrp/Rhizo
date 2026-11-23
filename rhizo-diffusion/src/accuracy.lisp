@@ -73,10 +73,13 @@ Second order gives 2."
   (/ (log (/ coarse-error fine-error)) (log (sqrt (float cell-ratio 1.0d0)))))
 
 (defun gaussian-spreading-error (tessellation &key centre sigma-start sigma-end
-                                                    (diffusivity 1.0d0))
+                                                    (diffusivity 1.0d0)
+                                                    (scheme :explicit)
+                                                    (time-step-factor 1))
   "Diffuse a Gaussian on TESSELLATION from width SIGMA-START to SIGMA-END
-with DIFFUSIVITY, using explicit DIFFUSION-SUBSTEP! at the largest equal
-step within STABLE-TIMESTEP. Returns a plist:
+with DIFFUSIVITY, in equal steps of at most TIME-STEP-FACTOR times
+STABLE-TIMESTEP. SCHEME is :EXPLICIT (DIFFUSION-SUBSTEP!; a factor above 1
+is unstable) or :IMPLICIT (IMPLICIT-DIFFUSION-SUBSTEP!). Returns a plist:
   :L2         relative L2 error against the analytic Gaussian at the end
   :D-EFF      effective diffusivity, from the growth of the mean squared
               distance (4 D t in 2D)
@@ -85,16 +88,18 @@ step within STABLE-TIMESTEP. Returns a plist:
   (let* ((duration (/ (- (* sigma-end sigma-end) (* sigma-start sigma-start))
                       (* 2.0d0 diffusivity)))
          (species (list (make-species :name :c :diffusivity (float diffusivity 1.0d0))))
-         (steps (ceiling duration (stable-timestep tessellation species)))
+         (steps (ceiling duration (* time-step-factor (stable-timestep tessellation species))))
          (dt (/ duration steps))
          (world (make-mechanistic-world
-                 tessellation :species species :reactions '() :dt dt
+                 tessellation :species species :reactions '() :dt dt :diffusion-scheme scheme
                               :initial-state (field-initial-state
                                               tessellation
                                               (list (cons :c (gaussian-field centre sigma-start))))))
          (mass-0 (species-mass world :c))
          (r2-0 (species-mean-squared-distance world :c centre)))
-    (call-with-kernel (lambda () (dotimes (k steps) (diffusion-substep! world dt))))
+    (call-with-kernel
+     (lambda ()
+       (dotimes (k steps) (scheme-diffusion-substep! world dt))))
     (list :l2 (relative-l2-error world :c (gaussian-field centre sigma-end))
           :d-eff (/ (- (species-mean-squared-distance world :c centre) r2-0) (* 4.0d0 duration))
           :mass-error (/ (abs (- (species-mass world :c) mass-0)) (abs mass-0))

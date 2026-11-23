@@ -151,6 +151,7 @@
    #:mechanistic-world-state
    #:mechanistic-world-dt
    #:mechanistic-world-tick
+   #:mechanistic-world-diffusion-scheme
    #:field-initial-state
    #:make-pfas-rhizobiome-species
    #:make-pfas-rhizobiome-reactions
@@ -166,12 +167,23 @@
    #:flux-stencil-areas
    #:stencil-total-conductance
    #:stencil-net-flux
+   #:state-column
+
+   ;; implicit (backward Euler) diffusion
+   #:*implicit-tolerance*
+   #:vector-dot
+   #:conjugate-gradient
+   #:implicit-matrix-product
+   #:implicit-inverse-diagonal
+   #:implicit-diffusion-column
+   #:implicit-diffusion-substep!
 
    ;; mechanistic stepping
    #:stable-timestep
    #:rk4-cell-reaction!
    #:reaction-substep!
    #:diffusion-substep!
+   #:scheme-diffusion-substep!
    #:step-mechanistic!
    #:run-mechanistic!
 

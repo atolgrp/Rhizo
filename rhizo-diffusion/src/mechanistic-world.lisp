@@ -23,9 +23,11 @@
   n-species
   state           ; (array double-float (n-cells n-species)) - current tick
   dt
+  (diffusion-scheme :explicit) ; :EXPLICIT or :IMPLICIT - see STEP-MECHANISTIC!
   (tick 0 :type fixnum))
 
-(defun make-mechanistic-world (tessellation &key species reactions dt initial-state)
+(defun make-mechanistic-world (tessellation &key species reactions dt initial-state
+                                                  (diffusion-scheme :explicit))
   "Build a fresh MECHANISTIC-WORLD over TESSELLATION. SPECIES/REACTIONS
 define the reaction network (see reaction-network.lisp; the
 MAKE-PFAS-RHIZOBIOME-* functions below build the concrete v1 set). DT is
@@ -33,7 +35,11 @@ the tick size - see STABLE-TIMESTEP for how to choose a safe one for a
 given TESSELLATION/SPECIES pair. INITIAL-STATE is either an alist
 \(species-name . value), applied to every cell, or a function of one
 cell-id returning such an alist - so a source-region seeding pattern (like
-SEED-MOLECULES-AT! in diffusion.lisp) is possible."
+SEED-MOLECULES-AT! in diffusion.lisp) is possible. DIFFUSION-SCHEME is
+:EXPLICIT (DIFFUSION-SUBSTEP!, DT must respect STABLE-TIMESTEP) or :IMPLICIT
+\(IMPLICIT-DIFFUSION-SUBSTEP!, backward Euler, stable at any DT)."
+  (unless (member diffusion-scheme '(:explicit :implicit))
+    (error "MAKE-MECHANISTIC-WORLD: unknown diffusion scheme ~s" diffusion-scheme))
   (let* ((cell-index (make-cell-index tessellation))
          (n-cells (cell-index-count cell-index))
          (species-index (make-species-index species))
@@ -50,7 +56,8 @@ SEED-MOLECULES-AT! in diffusion.lisp) is possible."
      :tessellation tessellation :cell-index cell-index
      :stencil (make-flux-stencil tessellation cell-index)
      :species-list species :species-index species-index :reactions reactions
-     :n-species n-species :state state :dt (float dt 1.0d0) :tick 0)))
+     :n-species n-species :state state :dt (float dt 1.0d0) :tick 0
+     :diffusion-scheme diffusion-scheme)))
 
 (defun field-initial-state (tessellation fields)
   "Return a function of one cell-id, suitable as MAKE-MECHANISTIC-WORLD's

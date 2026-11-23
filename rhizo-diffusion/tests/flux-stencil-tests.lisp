@@ -52,11 +52,19 @@
   (let* ((tess (two-cell-tessellation 1.0d0 3.0d0 4.0d0))
          (stencil (make-flux-stencil tess (make-cell-index tess)))
          (index (make-cell-index tess))
-         (state (make-array '(2 2) :element-type 'double-float :initial-element 0d0)))
-    (setf (aref state (cell-id->index index "0") 1) 10d0)
-    (is (= -7.5d0 (stencil-net-flux stencil state (cell-id->index index "0") 1)))
-    (is (= 7.5d0 (stencil-net-flux stencil state (cell-id->index index "1") 1)))
-    (is (= 0d0 (stencil-net-flux stencil state 0 0)) "other columns are untouched")))
+         (x (make-array 2 :element-type 'double-float :initial-element 0d0)))
+    (setf (aref x (cell-id->index index "0")) 10d0)
+    (is (= -7.5d0 (stencil-net-flux stencil x (cell-id->index index "0"))))
+    (is (= 7.5d0 (stencil-net-flux stencil x (cell-id->index index "1"))))))
+
+(test state-column-copies-one-species
+  (let ((state (make-array '(3 2) :element-type 'double-float
+                                  :initial-contents '((1d0 2d0) (3d0 4d0) (5d0 6d0)))))
+    (let ((column (state-column state 1)))
+      (is (equalp #(2d0 4d0 6d0) column))
+      (is (typep column '(simple-array double-float (3))))
+      (setf (aref column 0) 99d0)
+      (is (= 2d0 (aref state 0 1)) "a fresh copy, not a view"))))
 
 (test diffusion-substep-matches-the-protocol-formula
   ;; Oracle: one explicit step computed straight from the tessellation
