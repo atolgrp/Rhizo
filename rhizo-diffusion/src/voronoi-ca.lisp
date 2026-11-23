@@ -32,7 +32,9 @@
   ids          ; (array fixnum (width height)) - kept around so metrics can
                ; map a grid position (e.g. "the cell 1/4 of the way east of
                ; center") to a cell id. Diffusion code never looks at this.
-  seed)        ; integer seed used to grow this grid, recorded for reproducibility
+  seed         ; integer seed used to grow this grid, recorded for reproducibility
+  seed-points) ; simple-vector of (x . y) integer pixels; element I is the seed
+               ; of cell I, where that cell's value sits (CELL-POSITION)
 
 (declaim (inline in-bounds-p))
 (defun in-bounds-p (x y width height)
@@ -164,22 +166,27 @@ reproducible from the returned VORONOI-GRID-SEED, and independent calls
 never share random state - safe to run concurrently.
 
 Growth, adjacency and the uniform EDGE-WEIGHT of 1.0 are exactly as in
-the published isotropy study. The finite-volume FACE-DISTANCE is added
-alongside them, as seed-to-seed distance (PLAN.md, Phase 1, step 1); it is
-read only by the mechanistic engine. Edge lengths are still staircase
-pixel counts here - see PLAN.md, Phase 1, step 4."
+the published isotropy study. Added alongside them, for the mechanistic
+engine only: the seed points are kept, each cell's CELL-POSITION is its
+seed, and FACE-DISTANCE is seed-to-seed distance (PLAN.md, Phase 1, steps
+1-2). Edge lengths are still staircase pixel counts here - see PLAN.md,
+Phase 1, step 4."
   (let* ((seed (or seed (random most-positive-fixnum (make-random-state t))))
          (random-state (sb-ext:seed-random-state seed))
-         (seed-points (random-distinct-points width height n-points random-state))
+         (seed-points (coerce (random-distinct-points width height n-points random-state)
+                              'simple-vector))
          (ids (grow-voronoi-ids width height seed-points random-state))
-         (adjacency (build-adjacency ids width height)))
+         (adjacency (build-adjacency ids width height))
+         (positions (positions-table (alexandria:iota (length seed-points))
+                                     (lambda (id) (aref seed-points id)))))
     (multiple-value-bind (cell-areas edge-lengths) (build-geometry ids width height)
       (%make-voronoi-grid
        :tessellation (make-hash-graph-tessellation
                       adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                                :cell-positions positions
                                 :face-distances (face-distances-from-positions
-                                                 adjacency (lambda (id) (aref seed-points id))))
-       :width width :height height :ids ids :seed seed))))
+                                                 adjacency (lambda (id) (gethash id positions))))
+       :width width :height height :ids ids :seed seed :seed-points seed-points))))
 
 (defun voronoi-grid-id-at (grid x y)
   (aref (voronoi-grid-ids grid) x y))

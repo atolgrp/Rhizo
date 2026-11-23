@@ -58,6 +58,13 @@ finite-volume flux D * EDGE-LENGTH / d * (C_b - C_a). Seed-to-seed distance
 for Voronoi grids, centroid distance for GIS polygons. Always positive and
 symmetric. Not the same as EDGE-WEIGHT - see the comment above."))
 
+(defgeneric cell-position (tessellation cell-id)
+  (:documentation "Return the point (x . y), as double-floats, at which
+CELL-ID holds its value: its seed on a Voronoi grid, its centroid for a GIS
+polygon. FACE-DISTANCE is measured between these points, so this is where
+the two-point flux is consistent. Initial conditions, source placement and
+comparisons with analytic solutions evaluate fields here."))
+
 ;;; The one concrete implementation used everywhere in this project: an
 ;;; explicit adjacency table, id -> alist of (neighbor-id . weight). Any
 ;;; builder that can produce such a table (CA growth today; GIS polygons;
@@ -81,17 +88,24 @@ this tessellation was built without geometry data - see CELL-AREA.")
    (face-distances :initarg :face-distances :initform nil :reader tessellation-face-distances
                    :documentation "EQUAL hash-table: cell-id -> alist of
 (neighbor-id . distance), or NIL if built without geometry data - see
-FACE-DISTANCE and FACE-DISTANCES-FROM-POSITIONS.")))
+FACE-DISTANCE and FACE-DISTANCES-FROM-POSITIONS.")
+   (cell-positions :initarg :cell-positions :initform nil :reader tessellation-cell-positions
+                   :documentation "EQUAL hash-table: cell-id -> (x . y)
+double-float point, or NIL if built without geometry data - see
+CELL-POSITION.")))
 
-(defun make-hash-graph-tessellation (adjacency &key cell-areas edge-lengths face-distances)
+(defun make-hash-graph-tessellation (adjacency &key cell-areas edge-lengths face-distances
+                                                    cell-positions)
   "Return a HASH-GRAPH-TESSELLATION over ADJACENCY. CELL-AREAS,
-EDGE-LENGTHS and FACE-DISTANCES are optional - omit them (as every
-topological-only caller does) to get a tessellation that still supports
-every topological operation (NEIGHBORS-OF, EDGE-WEIGHT, front propagation,
-Dijkstra), just not the finite-volume geometry."
+EDGE-LENGTHS, FACE-DISTANCES and CELL-POSITIONS are optional - omit them (as
+every topological-only caller does) to get a tessellation that still
+supports every topological operation (NEIGHBORS-OF, EDGE-WEIGHT, front
+propagation, Dijkstra), just not the finite-volume geometry. Builders
+derive FACE-DISTANCES from CELL-POSITIONS (FACE-DISTANCES-FROM-POSITIONS),
+so the two agree by construction."
   (make-instance 'hash-graph-tessellation
                  :adjacency adjacency :cell-areas cell-areas :edge-lengths edge-lengths
-                 :face-distances face-distances))
+                 :face-distances face-distances :cell-positions cell-positions))
 
 (defmethod cell-ids ((tess hash-graph-tessellation))
   (loop for id being the hash-keys of (tessellation-adjacency tess) collect id))
@@ -143,6 +157,35 @@ not the mechanistic reaction-diffusion engine."))
       (unless entry
         (error "FACE-DISTANCE: no distance recorded between cells ~s and ~s" a b))
       (cdr entry))))
+
+(defmethod cell-position ((tess hash-graph-tessellation) cell-id)
+  (let ((positions (tessellation-cell-positions tess)))
+    (unless positions
+      (error "CELL-POSITION: this tessellation was built without geometry data."))
+    (multiple-value-bind (point foundp) (gethash cell-id positions)
+      (unless foundp
+        (error "CELL-POSITION: no position recorded for cell ~s" cell-id))
+      point)))
+
+(defun nearest-cell (tessellation point)
+  "Return the id of the cell of TESSELLATION whose CELL-POSITION is closest
+to POINT (x . y). On a nearest-seed Voronoi grid this is the cell that
+contains POINT; on other tessellations it is the cell whose value point is
+nearest. Used to place sources. Ties go to the first cell in CELL-IDS order."
+  (let ((ids (cell-ids tessellation)))
+    (reduce (lambda (best id)
+              (if (< (point-distance point (cell-position tessellation id))
+                     (point-distance point (cell-position tessellation best)))
+                  id best))
+            (rest ids) :initial-value (first ids))))
+
+(defun positions-table (ids position-of)
+  "Return a fresh EQUAL hash-table cell-id -> (x . y) for every id in IDS,
+with each point from (FUNCALL POSITION-OF id) converted to double-floats."
+  (let ((table (make-hash-table :test 'equal :size (length ids))))
+    (dolist (id ids table)
+      (let ((p (funcall position-of id)))
+        (setf (gethash id table) (cons (float (car p) 1.0d0) (float (cdr p) 1.0d0)))))))
 
 (defun point-distance (p0 p1)
   "Return the Euclidean distance between points P0 and P1, each (x . y),

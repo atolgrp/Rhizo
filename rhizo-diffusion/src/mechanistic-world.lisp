@@ -50,6 +50,17 @@ SEED-MOLECULES-AT! in diffusion.lisp) is possible."
      :species-list species :species-index species-index :reactions reactions
      :n-species n-species :state state :dt (float dt 1.0d0) :tick 0)))
 
+(defun field-initial-state (tessellation fields)
+  "Return a function of one cell-id, suitable as MAKE-MECHANISTIC-WORLD's
+:INITIAL-STATE, giving the alist (species-name . value) obtained by
+evaluating each field at the cell's CELL-POSITION. FIELDS is an alist
+\(species-name . function of a point (x . y)). Sampling at the value point
+rather than averaging over the cell is what a cell-centred scheme assumes;
+it is second-order accurate for smooth fields."
+  (lambda (id)
+    (let ((point (cell-position tessellation id)))
+      (mapcar (lambda (entry) (cons (car entry) (funcall (cdr entry) point))) fields))))
+
 ;;; The v1 concrete species/reaction set: two microbial guilds competing for
 ;;; one shared substrate pool, one of which (the "degrader") also
 ;;; co-metabolically degrades a contaminant that partitions between a

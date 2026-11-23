@@ -156,3 +156,59 @@ can be checked precisely. Small enough to check everything by hand."
                pairs))
     (is (> (/ (reduce #'+ distances) (length distances)) 3.0d0)
         "mean seed spacing on a 40x40 grid with 16 cells should be several pixels")))
+
+(test ca-voronoi-growth-is-unchanged-since-the-isotropy-study
+  ;; Fingerprint of one grown grid, measured on commit 8989ba1 (before any
+  ;; Phase 1 change). CA growth and adjacency must stay bit-identical so the
+  ;; published isotropy study reproduces (CLAUDE.md, rule 1).
+  (let* ((grid (make-voronoi-grid 60 50 30 :seed 20261123))
+         (tess (voronoi-grid-tessellation grid)))
+    (is (= 58986553 (loop for x below 60
+                          sum (loop for y below 50
+                                    sum (* (voronoi-grid-id-at grid x y) (+ 1 x (* 60 y)))))))
+    (is (= 71 (/ (loop for id in (cell-ids tess) sum (length (neighbors-of tess id))) 2)))))
+
+(test ca-voronoi-grid-keeps-its-seed-points
+  (let* ((grid (make-voronoi-grid 40 40 16 :seed 11))
+         (tess (voronoi-grid-tessellation grid))
+         (seeds (voronoi-grid-seed-points grid)))
+    (is (typep seeds 'simple-vector))
+    (is (= 16 (length seeds)))
+    (loop for id from 0 for (x . y) across seeds
+          do (is (= id (voronoi-grid-id-at grid x y)) "seed ~a must lie in its own cell" id)
+             (is (equal (cons (float x 1d0) (float y 1d0)) (cell-position tess id))))
+    ;; FACE-DISTANCE is exactly the distance between the two seeds
+    (dolist (a (cell-ids tess))
+      (dolist (b (neighbors-of tess a))
+        (is (= (point-distance (aref seeds a) (aref seeds b)) (face-distance tess a b)))))))
+
+(test positions-table-converts-to-double-floats
+  (let ((table (positions-table '(0 1) (lambda (id) (if (= id 0) '(1 . 2) '(3/2 . 4))))))
+    (is (equal '(1.0d0 . 2.0d0) (gethash 0 table)))
+    (is (equal '(1.5d0 . 4.0d0) (gethash 1 table)))
+    (is (= 2 (hash-table-count table)))))
+
+(test cell-position-signals-clear-errors
+  (let ((bare (make-hash-graph-tessellation (tiny-square-adjacency)))
+        (partial (make-hash-graph-tessellation
+                  (tiny-square-adjacency)
+                  :cell-positions (positions-table '(0) #'tiny-square-positions))))
+    (signals error (cell-position bare 0))
+    (is (equal '(0.0d0 . 0.0d0) (cell-position partial 0)))
+    (signals error (cell-position partial 1))))
+
+(test nearest-cell-picks-the-closest-value-point
+  (let ((tess (make-hash-graph-tessellation
+               (tiny-square-adjacency)
+               :cell-positions (positions-table '(0 1 2 3) #'tiny-square-positions))))
+    (is (= 0 (nearest-cell tess '(0.1d0 . 0.2d0))))
+    (is (= 1 (nearest-cell tess '(2.9d0 . -5.0d0))))
+    (is (= 2 (nearest-cell tess '(10.0d0 . 10.0d0))))
+    (is (= 3 (nearest-cell tess '(0.0d0 . 4.0d0))) "exactly on a value point")))
+
+(test nearest-cell-on-a-ca-grid-finds-the-seed-cell
+  ;; Standing on a seed, the nearest value point is that seed itself.
+  (let* ((grid (make-voronoi-grid 40 40 16 :seed 11))
+         (tess (voronoi-grid-tessellation grid)))
+    (loop for id from 0 for seed across (voronoi-grid-seed-points grid)
+          do (is (= id (nearest-cell tess seed))))))

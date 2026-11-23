@@ -72,6 +72,14 @@
       (is (< (abs (- (face-distance tess (id "A") (id "D")) 1.5d0)) 1d-9))
       (is (< (abs (- (face-distance tess (id "D") (id "E")) 2.0d0)) 1d-9)))))
 
+(test gis-cell-position-is-the-centroid
+  (multiple-value-bind (tess ids) (fixture-tessellation-and-ids)
+    (flet ((id (l) (cdr (assoc l ids :test #'string=))))
+      (destructuring-bind (x . y) (cell-position tess (id "B"))
+        (is (< (abs (- x 2.5d0)) 1d-9))
+        (is (< (abs (- y 1.0d0)) 1d-9)))
+      (is (string= "F" (nearest-cell tess '(4.4d0 . 2.6d0)))))))
+
 (test tessellation-from-geojson-end-to-end
   (multiple-value-bind (tess regions) (tessellation-from-geojson *fixture-path*)
     (is (= 6 (cell-count tess)))

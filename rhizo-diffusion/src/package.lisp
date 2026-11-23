@@ -11,6 +11,8 @@
    #:cell-area
    #:edge-length
    #:face-distance
+   #:cell-position
+   #:nearest-cell
 
    ;; concrete protocol implementation backed by an explicit adjacency table
    #:hash-graph-tessellation
@@ -19,6 +21,7 @@
    #:add-edge!
    #:set-edge-length!
    #:face-distances-from-positions
+   #:positions-table
 
    ;; dense cell-id <-> array-index mapping, for the mechanistic engine
    #:cell-index
@@ -34,6 +37,7 @@
    #:voronoi-grid-height
    #:voronoi-grid-id-at
    #:voronoi-grid-seed
+   #:voronoi-grid-seed-points
    #:make-voronoi-grid
 
    ;; world: the explicit, non-global state of one simulation instance
@@ -134,6 +138,7 @@
    #:mechanistic-world-state
    #:mechanistic-world-dt
    #:mechanistic-world-tick
+   #:field-initial-state
    #:make-pfas-rhizobiome-species
    #:make-pfas-rhizobiome-reactions
    #:make-pfas-rhizobiome-world

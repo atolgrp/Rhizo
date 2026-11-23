@@ -19,15 +19,32 @@ points DISTANCE apart. HOP-WEIGHT is the topological EDGE-WEIGHT, which the
 finite-volume engine must ignore; it defaults to DISTANCE."
   (let ((adjacency (make-hash-table :test 'equal))
         (cell-areas (make-hash-table :test 'equal))
-        (edge-lengths (make-hash-table :test 'equal)))
+        (edge-lengths (make-hash-table :test 'equal))
+        (positions (positions-table '("0" "1")
+                                    (lambda (id) (if (string= id "0") '(0 . 0) (cons distance 0))))))
     (add-edge! adjacency "0" "1" hop-weight)
     (setf (gethash "0" cell-areas) area)
     (setf (gethash "1" cell-areas) area)
     (set-edge-length! edge-lengths "0" "1" edge-len)
     (make-hash-graph-tessellation
      adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+               :cell-positions positions
                :face-distances (face-distances-from-positions
-                                adjacency (lambda (id) (if (string= id "0") '(0 . 0) (cons distance 0)))))))
+                                adjacency (lambda (id) (gethash id positions))))))
+
+(test field-initial-state-samples-fields-at-cell-positions
+  ;; Cell "0" sits at (0, 0) and cell "1" at (4, 0).
+  (let* ((tess (two-cell-tessellation 1.0d0 1.0d0 4.0d0))
+         (init (field-initial-state tess (list (cons :a (lambda (p) (+ 1 (car p))))
+                                               (cons :b (lambda (p) (declare (ignore p)) 7))))))
+    (is (equal '((:a . 1.0d0) (:b . 7)) (funcall init "0")))
+    (is (equal '((:a . 5.0d0) (:b . 7)) (funcall init "1")))
+    (let ((world (make-mechanistic-world
+                  tess :species (list (make-species :name :a :diffusivity 0d0)
+                                      (make-species :name :b :diffusivity 0d0))
+                       :reactions '() :dt 1d0 :initial-state init)))
+      (is (= 5.0d0 (cell-species-value world "1" :a)))
+      (is (= 7.0d0 (cell-species-value world "0" :b))))))
 
 (test face-conductance-is-edge-length-over-face-distance
   (let ((tess (two-cell-tessellation 1.0d0 3.0d0 2.0d0 :hop-weight 1.0d0)))

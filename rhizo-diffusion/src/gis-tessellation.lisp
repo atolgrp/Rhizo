@@ -88,12 +88,14 @@ holds here, but read through its own accessor (see tessellation.lisp).
 Assumed, not measured: on irregular polygons the centroid-to-centroid
 segment is not in general perpendicular to the shared face, so the
 two-point flux is only approximately consistent there."
-  (let ((centroids (alexandria:alist-hash-table
-                    (mapcar (lambda (r) (cons (region-id r) (region-centroid r))) regions)
-                    :test 'equal)))
+  (let* ((by-id (alexandria:alist-hash-table
+                 (mapcar (lambda (r) (cons (region-id r) r)) regions) :test 'equal))
+         (centroids (positions-table (mapcar #'region-id regions)
+                                     (lambda (id) (region-centroid (gethash id by-id))))))
     (multiple-value-bind (adjacency cell-areas edge-lengths) (build-gis-adjacency regions)
       (make-hash-graph-tessellation
        adjacency :cell-areas cell-areas :edge-lengths edge-lengths
+                 :cell-positions centroids
                  :face-distances (face-distances-from-positions
                                   adjacency (lambda (id) (gethash id centroids)))))))
 
