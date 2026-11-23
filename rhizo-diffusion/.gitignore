@@ -1,0 +1,7 @@
+*.fasl
+*.fas
+*~
+\#*\#
+.\#*
+PLAN.md
+CLAUDE.md
