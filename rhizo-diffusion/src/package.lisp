@@ -47,6 +47,9 @@
    #:ring-bins
    #:nearest-seed-index
    #:nearest-seed-ids
+   #:boundary-step-counts
+   #:face-length-from-steps
+   #:nearest-seed-tessellation
    #:make-nearest-seed-grid
 
    ;; world: the explicit, non-global state of one simulation instance

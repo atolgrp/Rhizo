@@ -78,27 +78,84 @@ the index of its nearest seed in SEED-POINTS (see NEAREST-SEED-INDEX)."
       (dotimes (y height)
         (setf (aref ids x y) (nearest-seed-index x y seed-points bins bin-size))))))
 
+;;; Face geometry (PLAN.md, Phase 1, step 4). A straight face drawn in
+;;; pixels is a staircase of n_x unit boundary segments between
+;;; horizontally adjacent pixels and n_y between vertically adjacent ones.
+;;; Counting pixels gives n_x + n_y, which overstates a diagonal face by up
+;;; to sqrt(2) (4/pi on average over orientations) - the lattice anisotropy
+;;; coming back through the geometry. The straight face it approximates
+;;; has length sqrt(n_x^2 + n_y^2). This assumes each shared face is one
+;;; straight segment, which holds because Voronoi cells are convex.
+;;;
+;;; Only edge-sharing (4-connected) pixel pairs are counted, so cells that
+;;; touch only at a corner are not finite-volume neighbours.
+
+(defun boundary-step-counts (ids width height)
+  "Return a fresh EQUAL hash-table (a . b) -> (n-x . n-y), with a < b, for
+every pair of cells of the WIDTH x HEIGHT raster IDS that share at least one
+pixel edge. N-X counts the pixel pairs (x, y)-(x+1, y) split between A and
+B, N-Y the pairs (x, y)-(x, y+1). Pixels touching only at a corner add
+nothing."
+  (let ((counts (make-hash-table :test 'equal)))
+    (dotimes (x width counts)
+      (dotimes (y height)
+        (loop for (dx . dy) in *neighbor-offsets-4-forward*
+              for nx = (+ x dx)
+              for ny = (+ y dy)
+              when (in-bounds-p nx ny width height)
+                do (let ((a (aref ids x y)) (b (aref ids nx ny)))
+                     (unless (= a b)
+                       (let* ((key (cons (min a b) (max a b)))
+                              (old (gethash key counts '(0 . 0))))
+                         (setf (gethash key counts)
+                               (if (= dx 1)
+                                   (cons (1+ (car old)) (cdr old))
+                                   (cons (car old) (1+ (cdr old)))))))))))))
+
+(defun face-length-from-steps (n-x n-y)
+  "Return the length, as a double-float, of the straight face drawn in
+pixels as a staircase of N-X and N-Y unit boundary steps: sqrt(n-x^2 +
+n-y^2)."
+  (sqrt (float (+ (* n-x n-x) (* n-y n-y)) 1.0d0)))
+
+(defun nearest-seed-tessellation (ids seed-points width height)
+  "Return the finite-volume HASH-GRAPH-TESSELLATION of the WIDTH x HEIGHT
+raster IDS, in which pixel value I means cell I with seed (AREF SEED-POINTS
+I). Cells are neighbours when they share a pixel edge. Each cell's
+CELL-POSITION is its seed, its CELL-AREA its pixel count, EDGE-LENGTH is
+FACE-LENGTH-FROM-STEPS of BOUNDARY-STEP-COUNTS, and FACE-DISTANCE is
+seed-to-seed distance. EDGE-WEIGHT (the hop cost for Dijkstra) is also
+seed-to-seed distance, as on GIS tessellations; only the CA-grown grid uses
+a uniform 1.0."
+  (let ((positions (positions-table (alexandria:iota (length seed-points))
+                                    (lambda (id) (aref seed-points id))))
+        (adjacency (make-hash-table :test 'equal))
+        (edge-lengths (make-hash-table :test 'equal)))
+    (dotimes (id (length seed-points))
+      (ensure-cell! adjacency id))
+    (maphash (lambda (key steps)
+               (destructuring-bind (a . b) key
+                 (add-edge! adjacency a b (point-distance (gethash a positions)
+                                                          (gethash b positions)))
+                 (set-edge-length! edge-lengths a b
+                                   (face-length-from-steps (car steps) (cdr steps)))))
+             (boundary-step-counts ids width height))
+    (make-fv-tessellation adjacency
+                          ;; BUILD-GEOMETRY's first value is the pixel count per cell
+                          :cell-areas (values (build-geometry ids width height))
+                          :edge-lengths edge-lengths
+                          :cell-positions positions)))
+
 (defun make-nearest-seed-grid (width height n-points &key seed)
   "Return a VORONOI-GRID on a WIDTH x HEIGHT pixel grid with N-POINTS cells,
-each pixel assigned to its nearest seed. SEED is the integer seed of this
-call's own random state (generated if not given) and is recorded in
-VORONOI-GRID-SEED. Each cell's CELL-POSITION is its seed, and FACE-DISTANCE
-is seed-to-seed distance.
-
-Face geometry is, for now, the CA grid's: 8-connected adjacency, EDGE-WEIGHT
-1.0, staircase pixel-count edge lengths (BUILD-ADJACENCY, BUILD-GEOMETRY).
-PLAN.md Phase 1 step 4 replaces the edge lengths."
+each pixel assigned to its nearest seed, with the finite-volume geometry of
+NEAREST-SEED-TESSELLATION. SEED is the integer seed of this call's own
+random state (generated if not given) and is recorded in VORONOI-GRID-SEED."
   (let* ((seed (or seed (random most-positive-fixnum (make-random-state t))))
          (seed-points (coerce (random-distinct-points width height n-points
                                                       (sb-ext:seed-random-state seed))
                               'simple-vector))
-         (ids (nearest-seed-ids width height seed-points))
-         (positions (positions-table (alexandria:iota (length seed-points))
-                                     (lambda (id) (aref seed-points id)))))
-    (multiple-value-bind (cell-areas edge-lengths) (build-geometry ids width height)
-      (%make-voronoi-grid
-       :tessellation (make-fv-tessellation (build-adjacency ids width height)
-                                           :cell-areas cell-areas
-                                           :edge-lengths edge-lengths
-                                           :cell-positions positions)
-       :width width :height height :ids ids :seed seed :seed-points seed-points))))
+         (ids (nearest-seed-ids width height seed-points)))
+    (%make-voronoi-grid
+     :tessellation (nearest-seed-tessellation ids seed-points width height)
+     :width width :height height :ids ids :seed seed :seed-points seed-points)))

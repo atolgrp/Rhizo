@@ -169,8 +169,9 @@ Growth, adjacency and the uniform EDGE-WEIGHT of 1.0 are exactly as in
 the published isotropy study. Added alongside them, for the mechanistic
 engine only: the seed points are kept, each cell's CELL-POSITION is its
 seed, and FACE-DISTANCE is seed-to-seed distance (PLAN.md, Phase 1, steps
-1-2). Edge lengths are still staircase pixel counts here - see PLAN.md,
-Phase 1, step 4."
+1-2). Edge lengths stay staircase pixel counts, which overstate diagonal
+faces (measured D_eff 1.33 for D = 1), so reaction-diffusion runs use
+MAKE-NEAREST-SEED-GRID (nearest-seed.lisp) instead."
   (let* ((seed (or seed (random most-positive-fixnum (make-random-state t))))
          (random-state (sb-ext:seed-random-state seed))
          (seed-points (coerce (random-distinct-points width height n-points random-state)

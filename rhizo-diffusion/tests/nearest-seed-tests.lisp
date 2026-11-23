@@ -81,6 +81,69 @@ lowest index on ties."
     (is (integerp (voronoi-grid-seed (make-nearest-seed-grid 10 10 2)))
         "a seed is generated and recorded when none is given")))
 
+(defun ids-array (columns)
+  "A fixnum raster from a list of columns: (nth x COLUMNS) is column x,
+listed from y = 0 upward."
+  (make-array (list (length columns) (length (first columns)))
+              :element-type 'fixnum :initial-contents columns))
+
+(test boundary-step-counts-separates-x-and-y-steps
+  ;;   y=1  0 1 1        cell 0 meets cell 1 across x twice ((0,1)|(1,1)
+  ;;   y=0  0 0 1        and (1,0)|(2,0)) and across y once ((1,0)/(1,1))
+  (let ((counts (boundary-step-counts (ids-array '((0 0) (0 1) (1 1))) 3 2)))
+    (is (= 1 (hash-table-count counts)))
+    (is (equal '(2 . 1) (gethash '(0 . 1) counts)))))
+
+(test boundary-step-counts-ignores-corner-only-contact
+  ;;   y=1  2 1          cells 0 and 1 touch only at the centre corner
+  ;;   y=0  0 2
+  (let ((counts (boundary-step-counts (ids-array '((0 2) (2 1))) 2 2)))
+    (is (null (gethash '(0 . 1) counts)))
+    (is (equal '(1 . 1) (gethash '(0 . 2) counts)))
+    (is (equal '(1 . 1) (gethash '(1 . 2) counts)))))
+
+(test face-length-from-steps-is-euclidean
+  (is (eql 5.0d0 (face-length-from-steps 3 4)))
+  (is (eql 7.0d0 (face-length-from-steps 7 0)))
+  (is (< (abs (- (* 9 (sqrt 2d0)) (face-length-from-steps 9 9))) 1d-12)))
+
+(test nearest-seed-tessellation-drops-corner-only-neighbours
+  (let ((tess (nearest-seed-tessellation (ids-array '((0 2) (2 1)))
+                                         (vector '(0 . 0) '(1 . 1) '(1 . 0)) 2 2)))
+    (is (set-equal '(2) (neighbors-of tess 0)))
+    (is (set-equal '(2) (neighbors-of tess 1)))
+    (is (set-equal '(0 1) (neighbors-of tess 2)))
+    (is (= (sqrt 2d0) (edge-length tess 0 2)))))
+
+(test nearest-seed-tessellation-45-degree-face
+  ;; Seeds (2,2) and (7,7) on 10x10: the bisector is x + y = 9, and pixels
+  ;; on it are tied, so they go to seed 0. The face is a 9 x 9 staircase:
+  ;; 18 pixel edges, true length 9*sqrt(2). Cell 0 has the 55 pixels with
+  ;; x + y <= 9.
+  (let* ((seeds (vector '(2 . 2) '(7 . 7)))
+         (tess (nearest-seed-tessellation (nearest-seed-ids 10 10 seeds) seeds 10 10)))
+    (is (< (abs (- (* 9 (sqrt 2d0)) (edge-length tess 0 1))) 1d-12))
+    (is (< (abs (- (* 5 (sqrt 2d0)) (face-distance tess 0 1))) 1d-12))
+    (is (= (face-distance tess 0 1) (edge-weight tess 0 1)) "hop cost is seed distance here")
+    (is (< (abs (- 1.8d0 (face-conductance tess 0 1))) 1d-12))
+    (is (= 55 (cell-area tess 0)))
+    (is (= 45 (cell-area tess 1)))))
+
+(test nearest-seed-tessellation-axis-aligned-face-is-unchanged
+  ;; A vertical face is the one case the staircase count already got right.
+  (let* ((seeds (vector '(2 . 5) '(7 . 5)))
+         (tess (nearest-seed-tessellation (nearest-seed-ids 10 10 seeds) seeds 10 10)))
+    (is (= 10.0d0 (edge-length tess 0 1)))
+    (is (= 5.0d0 (face-distance tess 0 1)))))
+
+(test nearest-seed-grid-has-symmetric-positive-face-geometry
+  (let ((tess (voronoi-grid-tessellation (make-nearest-seed-grid 60 60 25 :seed 3))))
+    (dolist (a (cell-ids tess))
+      (dolist (b (neighbors-of tess a))
+        (is (plusp (edge-length tess a b)) "4-connected neighbours share a real face")
+        (is (= (edge-length tess a b) (edge-length tess b a)))
+        (is (= (face-distance tess a b) (face-distance tess b a)))))))
+
 (test nearest-seed-grid-pixels-are-closer-to-their-own-seed
   ;; The defining property, checked on the finished grid: no pixel is
   ;; strictly closer to another seed than to its own.
