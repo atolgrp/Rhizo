@@ -175,6 +175,16 @@
    #:step-mechanistic!
    #:run-mechanistic!
 
+   ;; accuracy against analytic solutions
+   #:gaussian-field
+   #:species-cells
+   #:species-mass
+   #:species-mean-squared-distance
+   #:relative-l2-error
+   #:observed-order
+   #:gaussian-spreading-error
+   #:grid-gaussian-errors
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
