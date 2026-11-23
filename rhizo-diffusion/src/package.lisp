@@ -203,6 +203,14 @@
    #:observed-order
    #:gaussian-spreading-error
    #:grid-gaussian-errors
+   #:point-source-concentration
+   #:point-source-arrival-time
+   #:*compass-directions*
+   #:compass-points
+   #:threshold-arrival-times
+   #:anisotropy-index
+   #:point-source-isotropy
+   #:retardation-measurement
 
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
