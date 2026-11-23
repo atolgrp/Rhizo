@@ -9,13 +9,6 @@
 ;;; either one degrading the other's accuracy, and it keeps each half's own
 ;;; parallel structure clean (see REACTION-SUBSTEP!/DIFFUSION-SUBSTEP!).
 
-(defun face-conductance (tessellation a b)
-  "Return the geometric conductance EDGE-LENGTH / FACE-DISTANCE of the face
-between adjacent cells A and B - the two-point flux across it, per unit
-diffusivity and unit concentration difference. Zero for cells that touch
-only at a corner (EDGE-LENGTH 0)."
-  (/ (edge-length tessellation a b) (face-distance tessellation a b)))
-
 (defun stable-timestep (tessellation species &key (safety-factor 0.9d0))
   "A conservative CFL-style bound on the explicit diffusion timestep: for
 every cell and every mobile species, the classic explicit-diffusion
@@ -23,25 +16,23 @@ stability condition
 
     area / (2 * diffusivity * sum-of-neighbor-conductances)
 
-(see FACE-CONDUCTANCE) is computed, and the
-minimum across every cell/species is returned, scaled by SAFETY-FACTOR.
+(see FACE-CONDUCTANCE, MAKE-FLUX-STENCIL) is computed, and the minimum
+across every cell/species is returned, scaled by SAFETY-FACTOR. The largest
+diffusivity always gives the smallest bound, so only it is used.
 Immobile species (diffusivity 0.0d0) don't constrain anything and are
 skipped. This is a heuristic bound - validated empirically by the CFL
 boundary test in tests/mechanistic-tests.lisp (state stays bounded at/under
 it, diverges meaningfully above it), not a proof of stability for the
 coupled reaction-diffusion system as a whole, since reaction kinetics can
 independently impose their own stiffness constraint that this doesn't see."
-  (let ((bound sb-ext:double-float-positive-infinity))
-    (dolist (sp species)
-      (when (plusp (species-diffusivity sp))
-        (dolist (id (cell-ids tessellation))
-          (let ((area (cell-area tessellation id))
-                (conductance (loop for nb in (neighbors-of tessellation id)
-                                   sum (face-conductance tessellation id nb))))
-            (when (plusp conductance)
-              (setf bound (min bound
-                                (/ area (* 2.0d0 (species-diffusivity sp) conductance)))))))))
-    (* safety-factor bound)))
+  (let* ((stencil (make-flux-stencil tessellation (make-cell-index tessellation)))
+         (areas (flux-stencil-areas stencil))
+         (max-d (reduce #'max species :key #'species-diffusivity :initial-value 0.0d0))
+         (bounds (loop for i below (length areas)
+                       for g = (stencil-total-conductance stencil i)
+                       when (and (plusp g) (plusp max-d))
+                         collect (/ (aref areas i) (* 2.0d0 max-d g)))))
+    (* safety-factor (reduce #'min bounds :initial-value sb-ext:double-float-positive-infinity))))
 
 (defparameter *reaction-underflow-epsilon* 1.0d-9
   "How far below zero RK4-CELL-REACTION! will tolerate before snapping a
@@ -100,15 +91,16 @@ PMAP-CELL-RANGE!."
 (defun diffusion-substep! (world dt)
   "Advance every mobile species by DT of explicit finite-volume diffusion:
 flux from neighbor J into cell I is D * FACE-CONDUCTANCE(I,J) * (C_J - C_I),
-summed over neighbors and divided by cell I's own area.
+summed over neighbors (STENCIL-NET-FLUX on the world's precomputed
+FLUX-STENCIL) and divided by cell I's own area.
 Immobile species (diffusivity 0.0d0) pass through unchanged. Reads only the
 tick's starting state (double-buffered via a fresh array, then swapped in)
 so it's safe to parallelize with PMAP-CELL-RANGE! even though every cell's
 new value depends on its neighbors' old ones - the standard safe way to do
 a synchronous CA-style update."
-  (let* ((tess (mechanistic-world-tessellation world))
-         (cell-index (mechanistic-world-cell-index world))
-         (n-cells (cell-index-count cell-index))
+  (let* ((stencil (mechanistic-world-stencil world))
+         (areas (flux-stencil-areas stencil))
+         (n-cells (length areas))
          (n-species (mechanistic-world-n-species world))
          (species-list (mechanistic-world-species-list world))
          (old-state (mechanistic-world-state world))
@@ -118,18 +110,12 @@ a synchronous CA-style update."
     (pmap-cell-range!
      n-cells
      (lambda (i)
-       (let ((id (index->cell-id cell-index i)))
-         (dolist (nb-id (neighbors-of tess id))
-           (let ((j (cell-id->index cell-index nb-id))
-                 (conductance (face-conductance tess id nb-id))
-                 (area (cell-area tess id)))
-             (loop for sp in species-list
-                   for s from 0
-                   for d = (species-diffusivity sp)
-                   when (plusp d)
-                     do (incf (aref new-state i s)
-                              (* dt (/ (* d conductance) area)
-                                 (- (aref old-state j s) (aref old-state i s))))))))))
+       (loop for sp in species-list
+             for s from 0
+             for d = (species-diffusivity sp)
+             when (plusp d)
+               do (incf (aref new-state i s)
+                        (* dt (/ d (aref areas i)) (stencil-net-flux stencil old-state i s))))))
     (setf (mechanistic-world-state world) new-state))
   world)
 
@@ -141,4 +127,12 @@ half-step, full diffusion step, reaction half-step. See the file header."
     (diffusion-substep! world dt)
     (reaction-substep! world (/ dt 2.0d0)))
   (incf (mechanistic-world-tick world))
+  world)
+
+(defun run-mechanistic! (world n-ticks)
+  "Advance WORLD by N-TICKS calls to STEP-MECHANISTIC! and return WORLD.
+One lparallel kernel is held for the whole run (CALL-WITH-KERNEL), instead
+of one being started and stopped by every PMAP-CELL-RANGE! call - three per
+tick."
+  (call-with-kernel (lambda () (dotimes (k n-ticks) (step-mechanistic! world))))
   world)

@@ -10,6 +10,18 @@
 ;;; there is no state shared between replicates, so nothing needs a lock -
 ;;; this is an embarrassingly-parallel batch, and lparallel:pmap is enough.
 
+(defun call-with-kernel (fn &key (workers 4))
+  "Call FN with no arguments and return its values, with LPARALLEL:*KERNEL*
+bound: to the current kernel if there is one, otherwise to a fresh kernel of
+WORKERS threads that is ended when FN returns. Starting threads costs about
+a millisecond, so a loop over many ticks should hold one kernel for all of
+them (see RUN-MECHANISTIC!) rather than start one per tick."
+  (if lparallel:*kernel*
+      (funcall fn)
+      (let ((lparallel:*kernel* (lparallel:make-kernel workers)))
+        (unwind-protect (funcall fn)
+          (lparallel:end-kernel :wait t)))))
+
 (defun pmap-cell-range! (n update-fn &key (workers 4) (chunk-size 256))
   "Call (UPDATE-FN i) for every I in 0..N-1 (a dense cell index - see
 MAKE-CELL-INDEX in tessellation.lisp), split into contiguous chunks run
@@ -27,18 +39,15 @@ inside a REPLICATE-FN passed to RUN-REPLICATES, which already has one),
 that kernel is reused; otherwise a temporary one sized to WORKERS is
 started and torn down, so a single mechanistic run outside a replicate
 batch still parallelizes its own per-tick cell updates."
-  (flet ((run ()
-           (lparallel:pmap
-            nil
-            (lambda (start)
-              (loop for i from start below (min n (+ start chunk-size))
-                    do (funcall update-fn i)))
-            (loop for start from 0 below n by chunk-size collect start))))
-    (if lparallel:*kernel*
-        (run)
-        (let ((lparallel:*kernel* (lparallel:make-kernel workers)))
-          (unwind-protect (run)
-            (lparallel:end-kernel :wait t))))))
+  (call-with-kernel
+   (lambda ()
+     (lparallel:pmap
+      nil
+      (lambda (start)
+        (loop for i from start below (min n (+ start chunk-size))
+              do (funcall update-fn i)))
+      (loop for start from 0 below n by chunk-size collect start)))
+   :workers workers))
 
 (defun run-replicates (n replicate-fn &key (workers 4) base-seed)
   "Run N replicates of REPLICATE-FN concurrently. REPLICATE-FN takes one

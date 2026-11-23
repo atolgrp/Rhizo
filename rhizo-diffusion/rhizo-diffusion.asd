@@ -21,6 +21,7 @@
                (:file "shape-metrics")
                (:file "validation")
                (:file "reaction-network")
+               (:file "flux-stencil")
                (:file "mechanistic-world")
                (:file "mechanistic-step"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
@@ -43,7 +44,8 @@
                (:file "shape-metrics-tests")
                (:file "validation-tests")
                (:file "reaction-network-tests")
-               (:file "mechanistic-tests"))
+               (:file "mechanistic-tests")
+               (:file "flux-stencil-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

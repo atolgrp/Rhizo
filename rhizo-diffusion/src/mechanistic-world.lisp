@@ -16,6 +16,7 @@
 (defstruct (mechanistic-world (:constructor %make-mechanistic-world))
   tessellation    ; must have real CELL-AREA/EDGE-LENGTH geometry
   cell-index      ; dense id <-> array-index mapping (tessellation.lisp)
+  stencil         ; FLUX-STENCIL in CELL-INDEX order, built once (flux-stencil.lisp)
   species-list
   species-index   ; name -> array column, shared with every REACTION's rate-fn
   reactions
@@ -47,6 +48,7 @@ SEED-MOLECULES-AT! in diffusion.lisp) is possible."
           (setf (aref state i s) (aref row s)))))
     (%make-mechanistic-world
      :tessellation tessellation :cell-index cell-index
+     :stencil (make-flux-stencil tessellation cell-index)
      :species-list species :species-index species-index :reactions reactions
      :n-species n-species :state state :dt (float dt 1.0d0) :tick 0)))
 

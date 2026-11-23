@@ -143,6 +143,7 @@
    #:make-mechanistic-world
    #:mechanistic-world-tessellation
    #:mechanistic-world-cell-index
+   #:mechanistic-world-stencil
    #:mechanistic-world-species-list
    #:mechanistic-world-species-index
    #:mechanistic-world-reactions
@@ -155,13 +156,25 @@
    #:make-pfas-rhizobiome-reactions
    #:make-pfas-rhizobiome-world
 
-   ;; mechanistic stepping
+   ;; precomputed finite-volume diffusion operator
    #:face-conductance
+   #:flux-stencil
+   #:make-flux-stencil
+   #:flux-stencil-offsets
+   #:flux-stencil-neighbors
+   #:flux-stencil-conductances
+   #:flux-stencil-areas
+   #:stencil-total-conductance
+   #:stencil-net-flux
+
+   ;; mechanistic stepping
    #:stable-timestep
    #:rk4-cell-reaction!
    #:reaction-substep!
    #:diffusion-substep!
    #:step-mechanistic!
+   #:run-mechanistic!
 
    ;; parallel per-cell update (single-node, shared-memory)
+   #:call-with-kernel
    #:pmap-cell-range!))
