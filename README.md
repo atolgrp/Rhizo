@@ -61,9 +61,24 @@ receivers, and the distance over which a signal is received. Literate and
 exploratory, in the sense that it records a line of thinking rather than
 presenting a finished program.
 
+### [`rhizo-diffusion/`](rhizo-diffusion/) — the simulator engine
+
+A reaction–diffusion engine on Voronoi cells: a tessellation protocol that works
+on CA-grown grids or GIS polygons, front propagation, weighted arrival times, and
+a finite-volume reaction–diffusion step with a small chemical-reaction-network
+layer. FiveAM suite of 1,337 checks.
+[`scripts/fv-accuracy.lisp`](rhizo-diffusion/scripts/fv-accuracy.lisp) measures
+diffusion accuracy against an analytic solution.
+
+### [`poros/`](poros/) — shelved
+
+Phase 0 of a porous-media layer on Femlisp: convergence and mass-balance
+experiments with logs, and a decision note. Shelved in favour of
+`rhizo-diffusion`, whose Voronoi-cell diffusion already conserves mass locally.
+
 ## Status and direction
 
-The isotropy experiment above is complete and stands on its own. The wider
+The isotropy experiment above is complete and stands on its own; the simulator itself continues in `rhizo-diffusion/`. The wider
 modelling question — signal exchange between roots and the rhizobiome under
 realistic soil water conditions — is a larger problem in three dimensions, and
 this work is a component of it rather than a foundation for it:
