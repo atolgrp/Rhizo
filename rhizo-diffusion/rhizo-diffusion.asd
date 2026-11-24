@@ -81,7 +81,8 @@
                (:file "water-range-tests")
                (:file "signalling-graph-tests")
                (:file "soil-hydraulics-tests")
-               (:file "rectangular-grid-tests"))
+               (:file "rectangular-grid-tests")
+               (:file "sparse-solver-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

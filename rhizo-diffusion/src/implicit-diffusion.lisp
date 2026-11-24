@@ -37,6 +37,30 @@ converged at 3e-16 there.")
   (declare (optimize (speed 3) (safety 1)) (type (simple-array double-float (*)) u v))
   (loop for i below (length u) sum (* (aref u i) (aref v i)) of-type double-float))
 
+(define-condition linear-solver-failure (error)
+  ((solver :initarg :solver :reader linear-solver-failure-solver)
+   (iterations :initarg :iterations :reader linear-solver-failure-iterations)
+   (residual :initarg :residual :reader linear-solver-failure-residual))
+  (:report (lambda (c stream)
+             (format stream "~a: no convergence after ~d iterations (relative residual ~,2e)"
+                     (linear-solver-failure-solver c) (linear-solver-failure-iterations c)
+                     (linear-solver-failure-residual c))))
+  (:documentation "Signalled by CONJUGATE-GRADIENT and BICGSTAB when they do
+not reach their tolerance, so a caller with a fallback (e.g. a smaller time
+step, RUN-RICHARDS) can handle exactly this failure."))
+
+(defun jacobi-preconditioner (inverse-diagonal)
+  "Return a function from a double-float vector v to a fresh vector: v
+scaled element-wise by INVERSE-DIAGONAL (the Jacobi preconditioner), or a
+copy of v when INVERSE-DIAGONAL is NIL."
+  (if inverse-diagonal
+      (lambda (v)
+        (declare (type (simple-array double-float (*)) v inverse-diagonal))
+        (let ((w (make-array (length v) :element-type 'double-float)))
+          (dotimes (i (length v) w)
+            (setf (aref w i) (* (aref inverse-diagonal i) (aref v i))))))
+      #'copy-seq))
+
 (defun conjugate-gradient (apply-matrix b x0 &key inverse-diagonal
                                                   (tolerance *implicit-tolerance*)
                                                   (max-iterations 10000))
@@ -45,22 +69,14 @@ a function from a double-float vector to a fresh vector M v. Starts from X0
 and preconditions with INVERSE-DIAGONAL (a vector of 1/M_ii; Jacobi) when
 given. Stops when ||B - M x|| <= TOLERANCE * ||B||. Returns (VALUES X
 ITERATIONS RELATIVE-RESIDUAL), with X fresh; B and X0 are not modified.
-Signals an error if MAX-ITERATIONS pass without convergence."
+Signals LINEAR-SOLVER-FAILURE if MAX-ITERATIONS pass without convergence."
   (declare (type (simple-array double-float (*)) b x0))
   (let* ((n (length b))
          (b-norm (sqrt (vector-dot b b)))
          (x (copy-seq x0))
          (r (let ((mx (funcall apply-matrix x0)))
               (map '(simple-array double-float (*)) #'- b mx)))
-         (precondition (lambda (v)
-                         (declare (type (simple-array double-float (*)) v))
-                         (if inverse-diagonal
-                             (let ((w (make-array n :element-type 'double-float))
-                                   (d inverse-diagonal))
-                               (declare (type (simple-array double-float (*)) w d))
-                               (dotimes (i n w)
-                                 (setf (aref w i) (* (aref d i) (aref v i)))))
-                             (copy-seq v))))
+         (precondition (jacobi-preconditioner inverse-diagonal))
          (z (funcall precondition r))
          (p (copy-seq z))
          (rz (vector-dot r z)))
@@ -73,8 +89,8 @@ Signals an error if MAX-ITERATIONS pass without convergence."
           when (<= residual tolerance)
             do (return-from conjugate-gradient (values x iteration residual))
           when (>= iteration max-iterations)
-            do (error "CONJUGATE-GRADIENT: no convergence after ~d iterations ~
-(relative residual ~,2e, tolerance ~,2e)" iteration residual tolerance)
+            do (error 'linear-solver-failure :solver 'conjugate-gradient
+                                             :iterations iteration :residual residual)
           do (let* ((mp (funcall apply-matrix p))
                     (alpha (/ rz (vector-dot p mp))))
                (declare (type (simple-array double-float (*)) mp) (type double-float alpha))
@@ -86,6 +102,111 @@ Signals an error if MAX-ITERATIONS pass without convergence."
                  (dotimes (i n)
                    (setf (aref p i) (+ (aref z i) (* (/ rz-new rz) (aref p i)))))
                  (setf rz rz-new))))))
+
+(defun vector-axpy (a x y)
+  "Return a fresh vector A X + Y of double-float vectors X and Y."
+  (declare (optimize (speed 3) (safety 1)) (type double-float a)
+           (type (simple-array double-float (*)) x y))
+  (let ((z (make-array (length x) :element-type 'double-float)))
+    (dotimes (i (length x) z)
+      (setf (aref z i) (+ (* a (aref x i)) (aref y i))))))
+
+(defun vector-norm (v)
+  "Return the Euclidean norm of the double-float vector V."
+  (sqrt (vector-dot v v)))
+
+(defun residual-vector (apply-matrix b x)
+  "Return a fresh vector B - M X, M given as APPLY-MATRIX."
+  (vector-axpy -1d0 (funcall apply-matrix x) b))
+
+(defun bicgstab (apply-matrix b x0 &key inverse-diagonal (tolerance *implicit-tolerance*)
+                                        (max-iterations 10000))
+  "Solve M x = B for a general (non-symmetric) nonsingular M given as
+APPLY-MATRIX, a function from a double-float vector to a fresh vector M v,
+by the stabilised biconjugate gradient method (van der Vorst 1992), right-
+preconditioned with INVERSE-DIAGONAL (Jacobi) when given. Starts from X0.
+Convergence is judged on the true residual ||B - M x|| <= TOLERANCE ||B||:
+when the recurred residual says converged but the true one does not, the
+iteration restarts from the true residual. Returns (VALUES X ITERATIONS
+RELATIVE-RESIDUAL), X fresh; B and X0 are not modified. Signals
+LINEAR-SOLVER-FAILURE after MAX-ITERATIONS, or on a breakdown it cannot
+restart from."
+  (declare (type (simple-array double-float (*)) b x0))
+  (let* ((n (length b))
+         (b-norm (vector-norm b))
+         (precondition (jacobi-preconditioner inverse-diagonal))
+         (x (copy-seq x0))
+         (iterations 0))
+    (declare (type fixnum iterations))
+    (when (zerop b-norm)
+      (return-from bicgstab (values (make-array n :element-type 'double-float :initial-element 0d0)
+                                    0 0d0)))
+    (flet ((fail (residual)
+             (error 'linear-solver-failure :solver 'bicgstab :iterations iterations
+                                           :residual residual)))
+      (loop ; one pass per (re)start from the true residual
+        (let* ((r (residual-vector apply-matrix b x))
+               (residual (/ (vector-norm r) b-norm))
+               (r-hat (copy-seq r))
+               (p (make-array n :element-type 'double-float :initial-element 0d0))
+               (v (make-array n :element-type 'double-float :initial-element 0d0))
+               (rho 1d0) (alpha 1d0) (omega 1d0)
+               (restart nil))
+          (declare (type double-float residual rho alpha omega))
+          (when (<= residual tolerance)
+            (return-from bicgstab (values x iterations residual)))
+          (loop until restart
+                do (when (>= iterations max-iterations) (fail residual))
+                   (incf iterations)
+                   (let ((rho-new (vector-dot r-hat r)))
+                     (when (zerop rho-new) (fail residual))
+                     (let ((beta (* (/ rho-new rho) (/ alpha omega))))
+                       ;; p = r + beta (p - omega v)
+                       (dotimes (i n)
+                         (setf (aref p i) (+ (aref r i)
+                                             (* beta (- (aref p i) (* omega (aref v i))))))))
+                     (setf rho rho-new)
+                     (let* ((p-hat (funcall precondition p))
+                            (av (funcall apply-matrix p-hat))
+                            (denominator (vector-dot r-hat av)))
+                       (when (zerop denominator) (fail residual))
+                       (setf v av
+                             alpha (/ rho denominator))
+                       (let* ((s (vector-axpy (- alpha) v r))
+                              (s-hat (funcall precondition s))
+                              (ts (funcall apply-matrix s-hat))
+                              (tt (vector-dot ts ts)))
+                         (setf omega (if (zerop tt) 0d0 (/ (vector-dot ts s) tt)))
+                         (dotimes (i n)
+                           (incf (aref x i) (+ (* alpha (aref p-hat i)) (* omega (aref s-hat i)))))
+                         (setf r (vector-axpy (- omega) ts s)
+                               residual (/ (vector-norm r) b-norm))
+                         (when (or (<= residual tolerance) (zerop omega))
+                           (setf restart t))))))
+          ;; confirm on the true residual; otherwise restart from it
+          (let ((true-residual (/ (vector-norm (residual-vector apply-matrix b x)) b-norm)))
+            (when (<= true-residual tolerance)
+              (return-from bicgstab (values x iterations true-residual)))
+            (when (>= iterations max-iterations) (fail true-residual))))))))
+
+(defun apply-csr-matrix (stencil diagonal off-diagonal x)
+  "Return a fresh vector M X for the general sparse matrix M with the
+sparsity of STENCIL: row i is DIAGONAL_i X_i plus, over cell i's faces k,
+OFF-DIAGONAL_k X_(neighbour across k). Neither symmetry nor zero row sums
+are assumed (Newton Jacobians, upwind advection)."
+  (declare (optimize (speed 3) (safety 1))
+           (type (simple-array double-float (*)) diagonal off-diagonal x))
+  (let* ((offsets (flux-stencil-offsets stencil))
+         (neighbors (flux-stencil-neighbors stencil))
+         (n (length diagonal))
+         (y (make-array n :element-type 'double-float)))
+    (declare (type (simple-array fixnum (*)) offsets neighbors))
+    (dotimes (i n y)
+      (let ((sum (* (aref diagonal i) (aref x i))))
+        (declare (type double-float sum))
+        (loop for k of-type fixnum from (aref offsets i) below (aref offsets (1+ i))
+              do (incf sum (* (aref off-diagonal k) (aref x (aref neighbors k)))))
+        (setf (aref y i) sum)))))
 
 (defun implicit-matrix-product (stencil dt diffusivity x &optional capacity)
   "Return a fresh vector (A kappa + DT K) X, with A the cell areas, kappa the

@@ -373,6 +373,18 @@
    #:voronoi-grid-ids
    #:raster-boundary-faces
 
+   ;; non-symmetric sparse solves (Phase 5)
+   #:linear-solver-failure
+   #:linear-solver-failure-solver
+   #:linear-solver-failure-iterations
+   #:linear-solver-failure-residual
+   #:jacobi-preconditioner
+   #:bicgstab
+   #:apply-csr-matrix
+   #:vector-axpy
+   #:vector-norm
+   #:residual-vector
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
