@@ -28,7 +28,8 @@
                (:file "mechanistic-step")
                (:file "accuracy")
                (:file "signalling")
-               (:file "signalling-analysis"))
+               (:file "signalling-analysis")
+               (:file "calling-distance"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
 (asdf:defsystem "rhizo-diffusion/examples"
@@ -67,7 +68,8 @@
                (:file "parameters-tests")
                (:file "signalling-tests")
                (:file "signalling-analysis-tests")
-               (:file "quorum-tests"))
+               (:file "quorum-tests")
+               (:file "calling-distance-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

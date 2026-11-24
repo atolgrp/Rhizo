@@ -14,21 +14,29 @@
 ;;; of this kind. Sorption that only exchanges with the dissolved pool does
 ;;; not change it: at steady state the sorbed pool is at equilibrium.
 
-(defun bessel-k0 (x)
-  "Return the modified Bessel function of the second kind K0(X), X > 0,
-from K0(x) = integral over t in [0, inf) of exp(-x cosh t), by the
-trapezoidal rule with step 1/8. The integrand is analytic in the strip
+(defun bessel-k (order x)
+  "Return the modified Bessel function of the second kind K_ORDER(X), X >
+0, from K_v(x) = integral over t in [0, inf) of exp(-x cosh t) cosh(v t), by
+the trapezoidal rule with step 1/8. The integrand is analytic in the strip
 |Im t| < pi/2 and decays doubly exponentially, so the rule's error is about
 exp(-8 pi^2), far below double precision. Signals an error unless X > 0."
   (unless (plusp x)
-    (error "BESSEL-K0: argument must be positive, got ~a" x))
+    (error "BESSEL-K: argument must be positive, got ~a" x))
   (let ((x (float x 1d0)) (h 0.125d0))
     (* h (+ (* 0.5d0 (exp (- x)))
             (loop for i from 1
-                  for term = (exp (- (* x (cosh (* i h)))))
+                  for term = (* (exp (- (* x (cosh (* i h))))) (cosh (* order i h)))
                   sum term into total of-type double-float
                   until (< term (* 1d-18 (+ total (exp (- x)))))
                   finally (return total))))))
+
+(defun bessel-k0 (x)
+  "Return K0(X), X > 0 (BESSEL-K of order 0)."
+  (bessel-k 0 x))
+
+(defun bessel-k1 (x)
+  "Return K1(X) = -K0'(X), X > 0 (BESSEL-K of order 1)."
+  (bessel-k 1 x))
 
 (defun point-source-steady-state (source-rate diffusivity decay-rate r)
   "Return the steady concentration at distance R from a source of

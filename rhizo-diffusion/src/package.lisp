@@ -253,7 +253,9 @@
    #:make-root-exudate-world
 
    ;; analysis of signalling runs (Phase 2 gate)
+   #:bessel-k
    #:bessel-k0
+   #:bessel-k1
    #:point-source-steady-state
    #:species-column-change
    #:step-to-steady-state!
@@ -268,6 +270,21 @@
    #:uniform-steady-ahl
    #:uniform-induction-p
    #:simulated-switch-density
+
+   ;; calling distance and its sensitivity (Phase 2 gate)
+   #:crossing-distance
+   #:steady-calling-distance
+   #:steady-calling-distance-elasticities
+   #:point-source-transient
+   #:transient-calling-distance
+   #:log-elasticity
+   #:radial-profile
+   #:profile-crossing
+   #:calling-distance
+   #:default-calling-scenario
+   #:scenario-value
+   #:calling-distance-scenario
+   #:calling-distance-sensitivity
 
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
