@@ -33,7 +33,8 @@
                (:file "calling-distance")
                (:file "water-range")
                (:file "signalling-graph")
-               (:file "tagged-signal"))
+               (:file "tagged-signal")
+               (:file "soil-hydraulics"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
 (asdf:defsystem "rhizo-diffusion/examples"
@@ -77,7 +78,8 @@
                (:file "calling-distance-tests")
                (:file "water-tests")
                (:file "water-range-tests")
-               (:file "signalling-graph-tests"))
+               (:file "signalling-graph-tests")
+               (:file "soil-hydraulics-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

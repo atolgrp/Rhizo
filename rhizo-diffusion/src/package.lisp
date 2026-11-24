@@ -347,6 +347,26 @@
    #:tagged-edges
    #:tagged-pool-balance
 
+   ;; soil hydraulics: van Genuchten-Mualem relations (Phase 5)
+   #:van-genuchten
+   #:make-van-genuchten
+   #:van-genuchten-p
+   #:van-genuchten-theta-r
+   #:van-genuchten-theta-s
+   #:van-genuchten-alpha
+   #:van-genuchten-n
+   #:van-genuchten-ks
+   #:vg-m
+   #:vg-effective-saturation
+   #:vg-water-content
+   #:vg-capacity
+   #:vg-conductivity
+   #:vg-conductivity-derivative
+   #:vg-head
+   #:celia-sand-parameters
+   #:sandy-clay-loam-parameters
+   #:van-genuchten-soil
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
