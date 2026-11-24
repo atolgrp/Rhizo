@@ -40,6 +40,14 @@ KS > 0."
   (%make-van-genuchten (float theta-r 1d0) (float theta-s 1d0) (float alpha 1d0)
                        (float n 1d0) (float ks 1d0)))
 
+;;; Every Newton iteration of a Richards step evaluates these in every
+;;; cell, so they are declared double-float throughout (measured
+;;; 2026-11-24: generic arithmetic made VG-CONDUCTIVITY three quarters of a
+;;; steady-state solve).
+(declaim (ftype (function (van-genuchten double-float) double-float)
+                vg-effective-saturation vg-water-content vg-capacity vg-conductivity
+                vg-conductivity-derivative))
+
 (declaim (inline vg-m))
 (defun vg-m (soil)
   "Return the van Genuchten exponent m = 1 - 1/n of SOIL."

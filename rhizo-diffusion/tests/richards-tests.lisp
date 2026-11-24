@@ -26,7 +26,7 @@ heads at the y values in POINTS."
                    (setf h (+ h (* (/ dy 6d0) (+ k1 (* 2 k2) (* 2 k3) k4))))
                    (when (< h -1d5) (return -1d5)))))))
     (let ((lo 0d0) (hi (van-genuchten-ks soil)))
-      (loop repeat 200
+      (loop repeat 60 ; 2^-60: below double precision of q
             do (let ((mid (* 0.5d0 (+ lo hi))))
                  (if (> (integrate mid depth) h-bottom) (setf lo mid) (setf hi mid))))
       (let ((q (* 0.5d0 (+ lo hi))))
@@ -156,7 +156,10 @@ heads at the y values in POINTS."
          (start-m (make-richards-state mixed -1000d0))
          (start-h (make-richards-state head -1000d0))
          (end-m (run-richards mixed start-m 3600d0 :dt 10d0 :dt-max 600d0))
-         (end-h (run-richards head start-h 3600d0 :dt 600d0 :growth 1d0)))
+         ;; fixed 10 min steps: no growth, and no shrinking for slow
+         ;; (quasi-Newton) convergence - only after an outright failure
+         (end-h (run-richards head start-h 3600d0 :dt 600d0 :growth 1d0
+                                                  :hard-iterations 1000 :max-iterations 50)))
     (is (< (abs (richards-mass-balance-error mixed start-m end-m)) 1d-6)
         "mixed form: ~a" (richards-mass-balance-error mixed start-m end-m))
     (is (> (abs (richards-mass-balance-error head start-h end-h)) 1d-3)
