@@ -204,6 +204,9 @@
    #:conjugate-gradient
    #:implicit-matrix-product
    #:implicit-inverse-diagonal
+   #:face-coefficients
+   #:capacity-diagonal
+   #:apply-implicit-matrix
    #:implicit-diffusion-column
    #:implicit-diffusion-substep!
 

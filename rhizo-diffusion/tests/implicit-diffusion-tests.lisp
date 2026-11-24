@@ -155,3 +155,35 @@
     (is (< (abs (- 1d0 (mean-of :d-eff fine))) 0.01d0) "D_eff: ~a" (mean-of :d-eff fine))
     (dolist (run fine)
       (is (< (getf run :mass-error) 1d-12) "mass error ~a" (getf run :mass-error)))))
+
+;;; Precomputed backward Euler operator (speed): the same matrix, built once
+;;; per solve instead of once per CG iteration.
+
+(test face-coefficients-are-dt-times-face-diffusivity-times-conductance
+  ;; two cells, conductance 1/4, diffusivities 1 and 3: harmonic mean 1.5
+  (let* ((tess (two-cell-tessellation 1d0 1d0 4d0))
+         (stencil (make-flux-stencil tess (make-cell-index tess)))
+         (c (face-coefficients stencil 2d0 (dvec 1 3))))
+    (is (equalp (dvec 0.75 0.75) c))))
+
+(test capacity-diagonal-is-area-times-capacity
+  (let* ((tess (two-cell-tessellation 2d0 1d0 4d0))
+         (stencil (make-flux-stencil tess (make-cell-index tess))))
+    (is (equalp (dvec 1 3) (capacity-diagonal stencil (dvec 0.5 1.5))))
+    (is (equalp (dvec 2 2) (capacity-diagonal stencil nil)))))
+
+(test apply-implicit-matrix-equals-the-matrix-product
+  (let* ((tess (voronoi-grid-tessellation (make-nearest-seed-grid 60 60 40 :seed 2)))
+         (stencil (make-flux-stencil tess (make-cell-index tess)))
+         (n (length (flux-stencil-areas stencil)))
+         (state (sb-ext:seed-random-state 9))
+         (x (map '(simple-array double-float (*)) (lambda (i) (declare (ignore i)) (random 1d0 state))
+                 (make-list n)))
+         (d (map '(simple-array double-float (*)) (lambda (i) (declare (ignore i)) (+ 0.1d0 (random 1d0 state)))
+                 (make-list n)))
+         (kappa (uniform-column n 0.3d0)))
+    (is (< (reduce #'max (map 'list (lambda (a b) (abs (- a b)))
+                              (implicit-matrix-product stencil 5d0 d x kappa)
+                              (apply-implicit-matrix stencil (face-coefficients stencil 5d0 d)
+                                                     (capacity-diagonal stencil kappa) x)))
+           1d-12))))
