@@ -70,8 +70,23 @@ decay rate, and no induction (a constant source)."
 (test step-to-steady-state-stops-at-the-fixed-point
   ;; Two-cell source world under :IMEX converges to c0 = 1.2, c1 = 0.8.
   (let ((world (two-cell-source-world :imex 1d0)))
-    (multiple-value-bind (steps change) (step-to-steady-state! world :c :tolerance 1d-12
-                                                                        :max-steps 1000)
+    (multiple-value-bind (steps change outcome) (step-to-steady-state! world :c :tolerance 1d-12
+                                                                                :max-steps 1000)
       (is (< steps 1000) "stopped after ~a steps, last change ~a" steps change)
       (is (< change 1d-12))
+      (is (eq :steady outcome))
       (is (< (abs (- (cell-species-value world "0" :c) 1.2d0)) 1d-10)))))
+
+(test step-to-steady-state-says-why-it-stopped
+  (multiple-value-bind (steps change outcome)
+      (step-to-steady-state! (two-cell-source-world :imex 1d0) :c :max-steps 3)
+    (declare (ignore change))
+    (is (= 3 steps))
+    (is (eq :max-steps outcome) "running out of steps is not a steady state"))
+  (let ((world (two-cell-source-world :imex 1d0)))
+    (multiple-value-bind (steps change outcome)
+        (step-to-steady-state! world :c :stop-when (lambda (w) (> (cell-species-value w "0" :c) 1d0)))
+      (declare (ignore change))
+      (is (eq :stopped outcome))
+      (is (< steps 100))
+      (is (> (cell-species-value world "0" :c) 1d0)))))

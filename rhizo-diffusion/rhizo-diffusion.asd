@@ -66,7 +66,8 @@
                (:file "pfas-example-tests")
                (:file "parameters-tests")
                (:file "signalling-tests")
-               (:file "signalling-analysis-tests"))
+               (:file "signalling-analysis-tests")
+               (:file "quorum-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

@@ -2,16 +2,10 @@
 (in-suite rhizo-diffusion-suite)
 
 (defun single-cell-tessellation (area)
-  "A tessellation with one cell and no edges - isolates local reaction
-dynamics from diffusion entirely, for tests that only care about the
-reaction-network side of the mechanistic engine."
-  (let ((adjacency (make-hash-table :test 'equal))
-        (cell-areas (make-hash-table :test 'equal)))
-    (ensure-cell! adjacency "only")
-    (setf (gethash "only" cell-areas) area)
-    (make-hash-graph-tessellation adjacency :cell-areas cell-areas
-                                             :edge-lengths (make-hash-table :test 'equal)
-                                             :face-distances (make-hash-table :test 'equal))))
+  "A tessellation with one cell \"only\" and no edges - isolates local
+reaction dynamics from diffusion entirely, for tests that only care about
+the reaction-network side of the mechanistic engine."
+  (well-mixed-tessellation :area area :id "only"))
 
 (defun two-cell-tessellation (area edge-len distance &key (hop-weight distance))
   "Two cells of AREA joined by one face of length EDGE-LEN, with value

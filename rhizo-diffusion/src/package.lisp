@@ -13,6 +13,7 @@
    #:face-distance
    #:cell-position
    #:nearest-cell
+   #:well-mixed-tessellation
 
    ;; concrete protocol implementation backed by an explicit adjacency table
    #:hash-graph-tessellation
@@ -257,6 +258,16 @@
    #:species-column-change
    #:step-to-steady-state!
    #:single-producer-steady-state
+   #:uniform-ahl-balance
+   #:bisect-root
+   #:uniform-steady-states
+   #:golden-section-maximum
+   #:quorum-switch-density
+   #:well-mixed-ahl-world
+   #:well-mixed-ahl
+   #:uniform-steady-ahl
+   #:uniform-induction-p
+   #:simulated-switch-density
 
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel

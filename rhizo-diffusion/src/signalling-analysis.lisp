@@ -48,14 +48,18 @@ column S of the state AFTER; 0 if that column is all zero."
             scale (max scale (abs (aref after i s)))))
     (if (zerop scale) 0d0 (/ change scale))))
 
-(defun step-to-steady-state! (world species-name &key (tolerance 1d-10) (max-steps 100000))
+(defun step-to-steady-state! (world species-name &key (tolerance 1d-10) (max-steps 100000)
+                                                     stop-when)
   "Step WORLD with STEP-MECHANISTIC! until the relative change of
 SPECIES-NAME over one whole step (SPECIES-COLUMN-CHANGE) falls below
-TOLERANCE, or MAX-STEPS steps have been taken. Returns (VALUES steps
-last-change). Mutates WORLD."
+TOLERANCE, until the predicate STOP-WHEN (a function of WORLD, if given) is
+true after a step, or until MAX-STEPS steps have been taken. Returns
+\(VALUES steps last-change outcome), OUTCOME being :STEADY, :STOPPED or
+:MAX-STEPS - the last is not a steady state. Mutates WORLD."
   (let ((s (gethash species-name (mechanistic-world-species-index world)))
         (steps 0)
-        (change 0d0))
+        (change 0d0)
+        (outcome nil))
     (call-with-kernel
      (lambda ()
        (loop
@@ -64,9 +68,11 @@ last-change). Mutates WORLD."
            (step-mechanistic! world)
            (incf steps)
            (setf change (species-column-change before (mechanistic-world-state world) s)))
-         (when (or (< change tolerance) (>= steps max-steps))
-           (return)))))
-    (values steps change)))
+         (setf outcome (cond ((and stop-when (funcall stop-when world)) :stopped)
+                             ((< change tolerance) :steady)
+                             ((>= steps max-steps) :max-steps)))
+         (when outcome (return)))))
+    (values steps change outcome)))
 
 (defun single-producer-steady-state (tessellation &key centre parameters (density 5d14)
                                                     r-min r-max (dt-factor 0.5d0)
@@ -125,3 +131,198 @@ hydrolysis must be the only loss, as K0 assumes. Returns a plist:
                 :mass-balance (/ (abs (- (signal-pool-balance world :ahl) balance-0))
                                  (species-mass world :ahl-produced))
                 :steps steps))))))
+
+;;; Quorum induction of a uniform population (PLAN.md, Phase 2 gate).
+;;;
+;;; Producers at a uniform density rho have no gradients, so the whole
+;;; domain behaves as one well-mixed cell: dC/dt = f(C), with
+;;;
+;;;     f(C) = rho (alpha + beta H(C)) - k C - kcat rho_d C / (Km + C),
+;;;
+;;; H the Hill activation. Steady states are the roots of f. Sorption that
+;;; only exchanges with the dissolved pool slows the approach (by up to
+;;; 1 + K') but does not move them. Solving f = 0 for the density gives
+;;; rho(C) = loss(C) / (alpha + beta H(C)), the density at which C is a
+;;; steady state. Where the feedback is strong enough, rho(C) rises to a
+;;; local maximum and falls to a local minimum: a fold (saddle-node). Above
+;;; the maximum, rho_on, the low (uninduced) state no longer exists and the
+;;; population switches on; below the minimum, rho_off, the induced state
+;;; no longer exists. Between them both are stable (hysteresis). Without a
+;;; fold the response is graded, and the switch density is taken where the
+;;; steady AHL concentration equals the induction threshold.
+
+(defun uniform-ahl-balance (parameters producer-density c &key (degrader-density 0d0))
+  "Return f(C), the net rate (nM/s) of AHL production minus hydrolysis and
+biodegradation at concentration C in a well-mixed population of
+PRODUCER-DENSITY producers and DEGRADER-DENSITY degraders (cells/L), with
+PARAMETERS. See the comment above."
+  (flet ((p (name) (parameter-value parameters name)))
+    (- (* producer-density (+ (p :basal-production)
+                              (* (p :induced-production)
+                                 (hill-activation c (p :induction-threshold) (p :hill-coefficient)))))
+       (* (p :hydrolysis-rate) c)
+       (/ (* (p :biodegradation-kcat) degrader-density c) (+ (p :biodegradation-km) c)))))
+
+(defun bisect-root (f lo hi &key (iterations 100))
+  "Return a root of F in [LO, HI], where F(LO) and F(HI) differ in sign, by
+ITERATIONS bisections (to double precision for the default)."
+  (let ((f-lo (funcall f lo)))
+    (loop repeat iterations
+          for mid = (/ (+ lo hi) 2d0)
+          for f-mid = (funcall f mid)
+          do (if (eq (minusp f-mid) (minusp f-lo))
+                 (setf lo mid f-lo f-mid)
+                 (setf hi mid))
+          finally (return (/ (+ lo hi) 2d0)))))
+
+(defun uniform-steady-states (parameters producer-density &key (degrader-density 0d0)
+                                                            (grid-points 4000))
+  "Return the steady AHL concentrations, in increasing order, of a
+well-mixed population (UNIFORM-AHL-BALANCE = 0) with PARAMETERS: one when
+the response is monostable, three in the bistable range (low, unstable,
+induced). Roots are bracketed on GRID-POINTS log-spaced concentrations up to
+the bound rho (alpha + beta) / k, then bisected; two roots closer than one
+grid step (0.7% at the default) are missed. Requires a hydrolysis rate > 0."
+  (let* ((k (parameter-value parameters :hydrolysis-rate))
+         (c-max (/ (* producer-density (+ (parameter-value parameters :basal-production)
+                                          (parameter-value parameters :induced-production)))
+                   k))
+         (f (lambda (c) (uniform-ahl-balance parameters producer-density c
+                                             :degrader-density degrader-density)))
+         (grid (cons 0d0 (loop for i from 0 to grid-points
+                               collect (* c-max (expt 10d0 (* -12d0 (- 1d0 (/ i grid-points)))))))))
+    (unless (plusp k)
+      (error "UNIFORM-STEADY-STATES: needs a positive hydrolysis rate"))
+    (loop for (lo hi) on grid
+          while hi
+          when (not (eq (minusp (funcall f lo)) (minusp (funcall f hi))))
+            collect (bisect-root f lo hi))))
+
+(defun golden-section-maximum (f lo hi &key (tolerance 1d-12))
+  "Return the X in [LO, HI] maximising F, assumed unimodal there, by
+golden-section search to a bracket of TOLERANCE times (|LO| + |HI|). Near
+a smooth maximum F changes with the square of the distance, so X is good to
+about sqrt(double epsilon), 1.5e-8 relative, but F(X) to round-off."
+  (let* ((ratio (/ (- (sqrt 5d0) 1d0) 2d0))
+         (a lo) (b hi)
+         (x1 (- b (* ratio (- b a)))) (x2 (+ a (* ratio (- b a))))
+         (f1 (funcall f x1)) (f2 (funcall f x2)))
+    (loop while (> (- b a) (* tolerance (+ (abs lo) (abs hi))))
+          do (if (< f1 f2)
+                 (setf a x1 x1 x2 f1 f2 x2 (+ a (* ratio (- b a))) f2 (funcall f x2))
+                 (setf b x2 x2 x1 f2 f1 x1 (- b (* ratio (- b a))) f1 (funcall f x1))))
+    (/ (+ a b) 2d0)))
+
+(defun quorum-switch-density (parameters &key (degrader-density 0d0) (grid-points 2000))
+  "Return the producer density (cells/L) at which a well-mixed population
+switches to the induced state, from the steady-state density curve rho(C)
+\(see the comment above), scanned on GRID-POINTS log-spaced concentrations
+from 1e-6 to 1e6 times the induction threshold and refined by
+GOLDEN-SECTION-MAXIMUM. Returns a plist:
+  (:KIND :BISTABLE :ON rho_on :OFF rho_off :C-ON C at the upper fold
+   :C-OFF C at the lower fold), or
+  (:KIND :GRADED :HALF rho at which the steady AHL is the threshold)."
+  (flet ((p (name) (parameter-value parameters name)))
+    (let* ((threshold (p :induction-threshold))
+           (rho (lambda (log-c)
+                  (let ((c (exp log-c)))
+                    (/ (- (uniform-ahl-balance parameters 0d0 c :degrader-density degrader-density))
+                       (+ (p :basal-production)
+                          (* (p :induced-production)
+                             (hill-activation c threshold (p :hill-coefficient))))))))
+           (logs (loop for i from 0 to grid-points
+                       collect (+ (log (* 1d-6 threshold))
+                                  (* (/ i grid-points) (log 1d12)))))
+           (values (mapcar rho logs))
+           (peak (loop for (l0 l1 l2) on logs
+                       for (v0 v1 v2) on values
+                       while l2
+                       when (and (> v1 v0) (>= v1 v2)) return (list l0 l2)))
+           (trough (and peak
+                        (loop for (l0 l1 l2) on logs
+                              for (v0 v1 v2) on values
+                              while l2
+                              when (and (> l1 (second peak)) (< v1 v0) (<= v1 v2))
+                                return (list l0 l2)))))
+      (if (and peak trough)
+          (let ((log-on (golden-section-maximum rho (first peak) (second peak)))
+                (log-off (golden-section-maximum (lambda (l) (- (funcall rho l)))
+                                                 (first trough) (second trough))))
+            (list :kind :bistable
+                  :on (funcall rho log-on) :off (funcall rho log-off)
+                  :c-on (exp log-on) :c-off (exp log-off)))
+          (list :kind :graded :half (funcall rho (log threshold)))))))
+
+(defun well-mixed-ahl-world (parameters producer-density degrader-density dt-factor)
+  "Return an AHL world with PARAMETERS on WELL-MIXED-TESSELLATION holding
+PRODUCER-DENSITY producers and DEGRADER-DENSITY degraders per litre and no
+AHL, using the Strang scheme (RK4 reactions) with dt = DT-FACTOR / (the sum
+of the hydrolysis, first-order biodegradation and sorption relaxation
+rates). One cell has no diffusion, so Strang's steady-state bias (a
+splitting artefact) cannot arise, and RK4 is stable at about 10 times the
+explicit Euler step."
+  (flet ((p (name) (parameter-value parameters name)))
+    (make-ahl-world
+     (well-mixed-tessellation)
+     :parameters parameters
+     :diffusion-scheme :implicit
+     :dt (/ dt-factor (+ (p :hydrolysis-rate)
+                         (/ (* (p :biodegradation-kcat) degrader-density) (p :biodegradation-km))
+                         (sorption-relaxation-rate parameters)))
+     :initial-state `((:producer . ,producer-density) (:degrader . ,degrader-density)))))
+
+(defun well-mixed-ahl (world)
+  "Return the AHL concentration of a world over WELL-MIXED-TESSELLATION."
+  (aref (mechanistic-world-state world) 0 (gethash :ahl (mechanistic-world-species-index world))))
+
+(defun uniform-steady-ahl (parameters producer-density &key (degrader-density 0d0)
+                                                         (dt-factor 2d0) (tolerance 1d-12)
+                                                         (max-steps 100000))
+  "Return the steady AHL concentration a well-mixed population of
+PRODUCER-DENSITY producers and DEGRADER-DENSITY degraders per litre reaches
+from no AHL, simulated (WELL-MIXED-AHL-WORLD with DT-FACTOR) until AHL
+changes by less than TOLERANCE in a step. Second value: the steps taken.
+Signals an error if MAX-STEPS pass first."
+  (let ((world (well-mixed-ahl-world parameters producer-density degrader-density dt-factor)))
+    (multiple-value-bind (steps change outcome)
+        (step-to-steady-state! world :ahl :tolerance tolerance :max-steps max-steps)
+      (unless (eq outcome :steady)
+        (error "UNIFORM-STEADY-AHL: not steady after ~d steps (last change ~,1e)" steps change))
+      (values (well-mixed-ahl world) steps))))
+
+(defun uniform-induction-p (parameters producer-density &key (degrader-density 0d0)
+                                                          (dt-factor 2d0) (tolerance 1d-9)
+                                                          (max-steps 1000000))
+  "Return true if a simulated well-mixed population (WELL-MIXED-AHL-WORLD)
+starting from no AHL becomes induced: its AHL passes the induction
+threshold. The run stops as soon as it does, or when AHL changes by less
+than TOLERANCE in a step below it (false): starting from no AHL, it climbs
+toward the low steady state from below, and the default leaves it within
+about 1e-6 of it for densities 1% from the fold. Near the fold both
+outcomes are slow - the low state is approached at a rate falling as the
+square root of the distance to the fold, and just above it the run crawls
+through the bottleneck the fold leaves - so signals an error if MAX-STEPS
+pass without a decision."
+  (let ((world (well-mixed-ahl-world parameters producer-density degrader-density dt-factor))
+        (threshold (parameter-value parameters :induction-threshold)))
+    (multiple-value-bind (steps change outcome)
+        (step-to-steady-state! world :ahl :tolerance tolerance :max-steps max-steps
+                                          :stop-when (lambda (w) (> (well-mixed-ahl w) threshold)))
+      (ecase outcome
+        (:stopped t)
+        (:steady (> (well-mixed-ahl world) threshold))
+        (:max-steps
+         (error "UNIFORM-INDUCTION-P: undecided after ~d steps (last change ~,1e)" steps change))))))
+
+(defun simulated-switch-density (parameters &key lo hi (tolerance 1d-3) (degrader-density 0d0))
+  "Return the producer density at which simulated well-mixed populations
+switch on (UNIFORM-INDUCTION-P), found by bisection between LO (must stay
+uninduced) and HI (must switch) until the bracket is within TOLERANCE of
+LO. Signals an error if LO and HI do not bracket the switch."
+  (flet ((induced-p (rho) (uniform-induction-p parameters rho :degrader-density degrader-density)))
+    (when (or (induced-p lo) (not (induced-p hi)))
+      (error "SIMULATED-SWITCH-DENSITY: ~a and ~a do not bracket the switch" lo hi))
+    (loop while (> (- hi lo) (* tolerance lo))
+          for mid = (/ (+ lo hi) 2d0)
+          do (if (induced-p mid) (setf hi mid) (setf lo mid)))
+    (/ (+ lo hi) 2d0)))

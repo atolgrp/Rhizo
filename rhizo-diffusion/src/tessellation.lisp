@@ -179,6 +179,19 @@ not the mechanistic reaction-diffusion engine."))
         (error "CELL-POSITION: no position recorded for cell ~s" cell-id))
       point)))
 
+(defun well-mixed-tessellation (&key (area 1d0) (id "cell"))
+  "Return a finite-volume tessellation of one cell ID of AREA, at the
+origin, with no faces: a well-mixed compartment, so a world over it runs
+reactions alone - e.g. a spatially uniform population, which has no
+gradients."
+  (let ((adjacency (make-hash-table :test 'equal))
+        (areas (make-hash-table :test 'equal)))
+    (ensure-cell! adjacency id)
+    (setf (gethash id areas) (float area 1d0))
+    (make-fv-tessellation adjacency :cell-areas areas :edge-lengths (make-hash-table :test 'equal)
+                                    :cell-positions (positions-table (list id)
+                                                                     (constantly '(0 . 0))))))
+
 (defun nearest-cell (tessellation point)
   "Return the id of the cell of TESSELLATION whose CELL-POSITION is closest
 to POINT (x . y). On a nearest-seed Voronoi grid this is the cell that
