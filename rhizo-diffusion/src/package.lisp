@@ -243,6 +243,9 @@
    #:mullins-sommer
    #:soil-parameters
    #:relative-diffusivity-model
+   #:no-tortuosity
+   #:water-species
+   #:set-water-content!
 
    ;; signalling chemistry: AHL quorum sensing and root exudate
    #:partition-coefficient

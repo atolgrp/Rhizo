@@ -52,6 +52,13 @@ no longer connect and diffusion stops."
           0d0
           (+ (* delta theta theta) (* mu theta))))))
 
+(defun no-tortuosity ()
+  "Return the relative diffusivity xi(theta) = theta: D_s = theta D_0, so
+the pore-water diffusivity is that in free water - a liquid medium such as
+agar, and the free-water assumption of PLAN.md Phase 2. Not a soil
+relation."
+  (lambda (theta) (float theta 1d0)))
+
 (defun soil-parameters ()
   "Return a fresh list of the soil MODEL-PARAMETERs: :BULK-DENSITY,
 :POROSITY and :WATER-CONTENT, used by sorption and the storage capacity,
@@ -82,11 +89,52 @@ and the constants of the relative-diffusivity relations."
 
 (defun relative-diffusivity-model (name parameters)
   "Return the relative diffusivity xi(theta) called NAME - :MILLINGTON-QUIRK,
-:PAPENDICK-CAMPBELL or :MULLINS-SOMMER - with its constants from PARAMETERS
+:PAPENDICK-CAMPBELL, :MULLINS-SOMMER or :NO-TORTUOSITY - with its constants from PARAMETERS
 \\(SOIL-PARAMETERS). Signals an error for another NAME."
   (flet ((p (key) (parameter-value parameters key)))
     (ecase name
+      (:no-tortuosity (no-tortuosity))
       (:millington-quirk (millington-quirk (p :porosity)))
       (:papendick-campbell (papendick-campbell (p :papendick-campbell-coefficient)
                                                (p :papendick-campbell-exponent)))
       (:mullins-sommer (mullins-sommer (p :mullins-sommer-delta) (p :mullins-sommer-mu))))))
+
+;;; Water content in a world. A world that tracks water has an immobile
+;;; species :WATER holding each cell's theta, which rate laws read through
+;;; (:PER name :WATER) references (reaction-network.lisp). Every pool is an
+;;; amount per soil volume; every species with a positive free-water
+;;; diffusivity counts as dissolved: its storage capacity is theta and its
+;;; diffusivity D_0 xi(theta).
+
+(defun water-species ()
+  "Return the immobile species :WATER, each cell's volumetric water
+content."
+  (make-species :name :water :diffusivity 0d0))
+
+(defun set-water-content! (world theta-field relation &key (blocked-p (constantly nil)))
+  "Set the water content of every cell of WORLD to (FUNCALL THETA-FIELD
+cell-id), which must be positive: the :WATER species, and for each
+dissolved species (free-water diffusivity D_0 > 0) its capacity theta and
+diffusivity D_0 (FUNCALL RELATION theta), or zero in cells satisfying
+BLOCKED-P (a no-flux wall, e.g. a root). Amounts are not touched: when
+water leaves, solute stays behind and its pore-water concentration rises.
+Changes only WORLD. Returns WORLD."
+  (let* ((index (mechanistic-world-cell-index world))
+         (water (or (gethash :water (mechanistic-world-species-index world))
+                    (error "SET-WATER-CONTENT!: the world has no :WATER species")))
+         (state (mechanistic-world-state world)))
+    (dolist (sp (mechanistic-world-species-list world))
+      (let ((d0 (species-diffusivity sp)))
+        (when (plusp d0)
+          (set-species-capacity! world (species-name sp) theta-field)
+          (set-species-diffusivity! world (species-name sp)
+                                    (lambda (id)
+                                      (if (funcall blocked-p id)
+                                          0d0
+                                          (* d0 (funcall relation (funcall theta-field id)))))))))
+    (dotimes (i (cell-index-count index) world)
+      (let ((theta (float (funcall theta-field (index->cell-id index i)) 1d0)))
+        (unless (plusp theta)
+          (error "SET-WATER-CONTENT!: water content ~a in cell ~s is not positive"
+                 theta (index->cell-id index i)))
+        (setf (aref state i water) theta)))))

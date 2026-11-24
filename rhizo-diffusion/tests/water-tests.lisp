@@ -39,3 +39,55 @@
            1d-15))
     (is (= 0d0 (funcall (relative-diffusivity-model :mullins-sommer parameters) 0.2d0)))
     (signals error (relative-diffusivity-model :no-such-model parameters))))
+
+(test no-tortuosity-relative-diffusivity-is-the-water-content
+  ;; D_s = theta D_0: pore-water diffusivity equals that in free water
+  (is (= 0.3d0 (funcall (relative-diffusivity-model :no-tortuosity (soil-parameters)) 0.3d0))))
+
+(defun water-test-world ()
+  "Two cells; :C dissolved (free-water D 2), :S immobile, :WATER the water
+content."
+  (make-mechanistic-world
+   (two-cell-tessellation 1d0 1d0 1d0)
+   :species (list (make-species :name :c :diffusivity 2d0) (make-species :name :s)
+                  (water-species))
+   :reactions '() :dt 1d0 :diffusion-scheme :imex
+   :initial-state '((:c . 3d0) (:s . 1d0))))
+
+(test set-water-content-sets-water-capacity-and-diffusivity
+  (let ((world (water-test-world))
+        (theta (lambda (id) (if (string= id "0") 0.2d0 0.4d0)))
+        (xi (lambda (th) (* th th))))
+    (set-water-content! world theta xi)
+    (let ((index (mechanistic-world-cell-index world))
+          (species-index (mechanistic-world-species-index world)))
+      (flet ((at (array id name) (aref array (cell-id->index index id) (gethash name species-index))))
+        (is (= 0.4d0 (at (mechanistic-world-state world) "1" :water)))
+        (is (= 0.2d0 (at (mechanistic-world-capacities world) "0" :c)) "dissolved: capacity theta")
+        (is (= 1d0 (at (mechanistic-world-capacities world) "0" :s)) "immobile: unchanged")
+        (is (< (abs (- (at (mechanistic-world-diffusivities world) "1" :c) (* 2d0 0.16d0))) 1d-15)
+            "D_0 xi(theta)")
+        (is (= 3d0 (at (mechanistic-world-state world) "0" :c)) "amounts are not touched")))))
+
+(test set-water-content-keeps-blocked-cells-walled
+  (let ((world (water-test-world)))
+    (set-water-content! world (constantly 0.3d0) #'identity :blocked-p (lambda (id) (string= id "0")))
+    (is (= 0d0 (aref (mechanistic-world-diffusivities world)
+                     (cell-id->index (mechanistic-world-cell-index world) "0")
+                     (gethash :c (mechanistic-world-species-index world)))))
+    (signals error (set-water-content! world (constantly 0d0) #'identity))))
+
+(test drying-concentrates-solute-and-conserves-it
+  ;; Halving theta leaves every amount in place, so the pore-water
+  ;; concentration m / theta doubles and the total is unchanged.
+  (let ((world (water-test-world)))
+    (set-water-content! world (constantly 0.4d0) #'identity)
+    (let ((mass (species-mass world :c)))
+      (set-water-content! world (constantly 0.2d0) #'identity)
+      (is (= mass (species-mass world :c)))
+      (is (< (abs (- 15d0 (concentration-of (let ((row (make-array 3 :element-type 'double-float)))
+                                              (dotimes (s 3 row)
+                                                (setf (aref row s) (aref (mechanistic-world-state world) 0 s))))
+                                            (mechanistic-world-species-index world)
+                                            '(:per :c :water))))
+             1d-12)))))
