@@ -27,6 +27,7 @@
                (:file "implicit-diffusion")
                (:file "mechanistic-step")
                (:file "accuracy")
+               (:file "water")
                (:file "signalling")
                (:file "signalling-analysis")
                (:file "calling-distance"))
@@ -70,7 +71,8 @@
                (:file "signalling-tests")
                (:file "signalling-analysis-tests")
                (:file "quorum-tests")
-               (:file "calling-distance-tests"))
+               (:file "calling-distance-tests")
+               (:file "water-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

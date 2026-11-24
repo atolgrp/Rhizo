@@ -236,8 +236,15 @@
    #:point-source-isotropy
    #:retardation-measurement
 
-   ;; signalling chemistry: AHL quorum sensing and root exudate
+   ;; soil water and solute diffusion
+   #:millington-quirk
+   #:papendick-campbell
+   #:mullins-sommer-threshold
+   #:mullins-sommer
    #:soil-parameters
+   #:relative-diffusivity-model
+
+   ;; signalling chemistry: AHL quorum sensing and root exudate
    #:partition-coefficient
    #:sorption-relaxation-rate
    #:signal-pool

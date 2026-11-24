@@ -96,17 +96,6 @@ The SOIL-PARAMETERS come last."
     :note "Batch of 50 mg soil in 5 mL (0.01 kg/L) relaxes at k_des (1 + 0.01 K_d), so k_des = 0.33 / (1 + 0.336) per h.")
    (soil-parameters)))
 
-(defun soil-parameters ()
-  "Return a fresh list of the soil MODEL-PARAMETERs every signal's sorption
-needs: :BULK-DENSITY and :WATER-CONTENT."
-  (list
-   (make-model-parameter
-    :bulk-density 1.3d0 "kg/L"
-    :note "Typical mineral-soil value, not from a measurement; set to the bulk density of the soil modelled.")
-   (make-model-parameter
-    :water-content 0.3d0 "1"
-    :source "Scenario choice: uniform volumetric water content (Phase 3 makes it a field)")))
-
 (defun partition-coefficient (parameters)
   "Return the dimensionless equilibrium ratio K' = rho_b K_d / theta of
 sorbed to dissolved signal, both per volume of water, from the

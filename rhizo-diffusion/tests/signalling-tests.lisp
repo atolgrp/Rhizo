@@ -14,8 +14,8 @@
 (test ahl-literature-parameters-carry-sources-and-units
   (let ((parameters (ahl-literature-parameters)))
     (is (every #'model-parameter-unit parameters))
-    (is (equal '(:bulk-density) (flagged-parameters parameters))
-        "only the soil bulk density lacks a literature source")
+    (is (equal '(:bulk-density :porosity) (flagged-parameters parameters))
+        "only the soil bulk density (and the porosity derived from it) lack a source")
     ;; unit conversions of the published values
     (is (= 490d0 (parameter-value parameters :diffusivity)))           ; 4.9e-10 m^2/s
     (is (< (relative-difference (parameter-value parameters :basal-production)
@@ -162,7 +162,8 @@ beyond \"a\" (face length 3), not touching the root."
 (test exudate-literature-parameters-flag-what-has-no-source
   (let ((parameters (exudate-literature-parameters)))
     (is (every #'model-parameter-unit parameters))
-    (is (equal '(:exudation-flux :kd :desorption-rate :bulk-density) (flagged-parameters parameters)))
+    (is (equal '(:exudation-flux :kd :desorption-rate :bulk-density :porosity)
+               (flagged-parameters parameters)))
     ;; Stokes-Einstein scaling of the AHL diffusivity by molar mass, 269.34 -> 330.38 g/mol
     (is (< (relative-difference (parameter-value parameters :diffusivity)
                                 (* 490d0 (expt (/ 269.34d0 330.38d0) (/ 1d0 3d0))))
