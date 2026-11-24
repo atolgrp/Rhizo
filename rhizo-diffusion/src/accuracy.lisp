@@ -58,11 +58,13 @@ each cell's mass taken to sit at its CELL-POSITION."
              sum (* area value (expt (point-distance position centre) 2)))
        (loop for (area nil value) in cells sum (* area value)))))
 
-(defun relative-l2-error (world species-name field)
+(defun relative-l2-error (world species-name field &key (where (constantly t)))
   "Return the area-weighted relative L2 error of SPECIES-NAME in WORLD
 against FIELD, a function of a point evaluated at each CELL-POSITION:
-sqrt(sum A (c - f)^2 / sum A f^2)."
-  (let ((cells (species-cells world species-name)))
+sqrt(sum A (c - f)^2 / sum A f^2), over the cells whose CELL-POSITION
+satisfies the predicate WHERE (default: every cell)."
+  (let ((cells (remove-if-not (lambda (cell) (funcall where (second cell)))
+                              (species-cells world species-name))))
     (sqrt (/ (loop for (area position value) in cells
                    sum (* area (expt (- value (funcall field position)) 2)))
              (loop for (area position nil) in cells

@@ -67,6 +67,7 @@
          (dt 500d0) (steps 40)
          (world (make-ahl-world (single-cell-tessellation 1d0)
                                 :parameters parameters :dt dt
+                                :diffusion-scheme :implicit ; Strang: RK4 reactions
                                 :initial-state `((:producer . ,rho))))
          (alpha (parameter-value parameters :basal-production)))
     (dotimes (i steps) (step-mechanistic! world))
@@ -95,6 +96,7 @@
          (producer-cells (subseq ids 0 5))
          (world (make-ahl-world
                  tess :dt 200d0 ; RK4 half-step 100 s against sorption relaxing at 0.01/s
+                      :diffusion-scheme :implicit
                       :initial-state (lambda (id)
                                        `((:ahl . 10d0)
                                          (:producer . ,(if (member id producer-cells) 1d12 0d0))

@@ -254,6 +254,9 @@
    ;; analysis of signalling runs (Phase 2 gate)
    #:bessel-k0
    #:point-source-steady-state
+   #:species-column-change
+   #:step-to-steady-state!
+   #:single-producer-steady-state
 
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel

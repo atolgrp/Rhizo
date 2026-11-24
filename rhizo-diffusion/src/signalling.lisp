@@ -183,14 +183,15 @@ by producers, biodegradation by degraders, and the SIGNAL-FATE-REACTIONS
            (signal-fate-reactions :ahl (p :hydrolysis-rate) parameters))))
 
 (defun make-ahl-world (tessellation &key (parameters (ahl-literature-parameters)) dt initial-state
-                                         (diffusion-scheme :implicit) diffusivity-field)
+                                         (diffusion-scheme :imex) diffusivity-field)
   "Return a fresh MECHANISTIC-WORLD of the AHL set over TESSELLATION with
 PARAMETERS (default AHL-LITERATURE-PARAMETERS). DT, INITIAL-STATE,
 DIFFUSION-SCHEME and DIFFUSIVITY-FIELD are as for MAKE-MECHANISTIC-WORLD;
-the scheme defaults to :IMPLICIT because the processes span seconds
-\(sorption) to days (hydrolysis). Biomass is placed through INITIAL-STATE
-\(:PRODUCER, :RECEIVER, :DEGRADER in cells per litre). DT must keep RK4
-stable against SORPTION-RELAXATION-RATE."
+the scheme defaults to :IMEX, which keeps steady states exact and is stable
+for diffusion at any DT. Biomass is placed through INITIAL-STATE
+\(:PRODUCER, :RECEIVER, :DEGRADER in cells per litre). DT times the fastest
+reaction rate - often SORPTION-RELAXATION-RATE - must stay below 1 for
+:IMEX's explicit reactions (about 5.6 for the Strang schemes' RK4)."
   (make-mechanistic-world tessellation :species (ahl-species parameters)
                                        :reactions (ahl-reactions parameters)
                                        :dt dt :initial-state initial-state
@@ -299,13 +300,13 @@ sorption) with PARAMETERS."
 
 (defun make-root-exudate-world (tessellation root-p &key (parameters (exudate-literature-parameters))
                                                          dt initial-state
-                                                         (diffusion-scheme :implicit))
+                                                         (diffusion-scheme :imex))
   "Return a fresh MECHANISTIC-WORLD of the root exudate set over
 TESSELLATION, the cells satisfying ROOT-P being root: their :ROOT-SOURCE
 comes from ROOT-SURFACE-SOURCE with PARAMETERS' :EXUDATION-FLUX, and the
 exudate cannot enter them (ROOT-DIFFUSIVITY-FIELD). INITIAL-STATE is an
 alist or a function of a cell id, as for MAKE-MECHANISTIC-WORLD, and must
-not set :ROOT-SOURCE."
+not set :ROOT-SOURCE. The scheme defaults to :IMEX, as for MAKE-AHL-WORLD."
   (let ((source (root-surface-source tessellation root-p (parameter-value parameters :exudation-flux))))
     (make-mechanistic-world
      tessellation :species (exudate-species parameters) :reactions (exudate-reactions parameters)
