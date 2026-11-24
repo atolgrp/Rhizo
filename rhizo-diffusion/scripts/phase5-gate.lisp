@@ -23,6 +23,11 @@
 ;;; its numbers are not the gate's).
 (defparameter *quick* (uiop:getenv "RHIZO_GATE_QUICK"))
 (defmacro quick-or (small full) `(if *quick* ,small ,full))
+;;; RHIZO_GATE_SECTIONS="2d,2e" runs only those sections (default: all).
+(defparameter *sections* (let ((v (uiop:getenv "RHIZO_GATE_SECTIONS")))
+                           (and v (uiop:split-string v :separator ","))))
+(defun section-p (name) (or (null *sections*) (member name *sections* :test #'string=)))
+(defmacro section (name &body body) `(when (section-p ,name) ,@body))
 
 (defun celia-problem (tess &key (form :mixed))
   (make-richards-problem tess :soil (van-genuchten-soil (celia-sand-parameters))
@@ -62,6 +67,22 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
       (funcall thunk)
       (/ (- (get-internal-real-time) t0) internal-time-units-per-second 1.0))))
 
+;;; ------------------------------------------------------------------
+;;; Data for the report's graphs: written as JSON when RHIZO_REPORT_DIR is
+;;; set (objects are alists, arrays vectors).
+
+(defparameter *report-dir* (uiop:getenv "RHIZO_REPORT_DIR"))
+
+(defun dump-json (name object)
+  (when *report-dir*
+    (with-open-file (s (merge-pathnames (format nil "~a.json" name)
+                                        (uiop:ensure-directory-pathname *report-dir*))
+                       :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (cl-json:encode-json object s))))
+
+(defun vec (list) (coerce list 'vector))
+
+(section "1"
 (format t "~&== 1. Celia, Bouloutas & Zarba (1990) infiltration, profiles at 1 day ==~%")
 (format t "  sand: theta_r 0.102, theta_s 0.368, alpha 0.0335 /cm, n 2, Ks 0.00922 cm/s; 100 cm column~%")
 (defparameter *day* 86400d0)
@@ -146,20 +167,7 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                   (front-depth profile) (front-depth *reference*) (profile-error profile)))))
     (finish-output)))
 
-;;; ------------------------------------------------------------------
-;;; Data for the report's graphs: written as JSON when RHIZO_REPORT_DIR is
-;;; set (objects are alists, arrays vectors).
 
-(defparameter *report-dir* (uiop:getenv "RHIZO_REPORT_DIR"))
-
-(defun dump-json (name object)
-  (when *report-dir*
-    (with-open-file (s (merge-pathnames (format nil "~a.json" name)
-                                        (uiop:ensure-directory-pathname *report-dir*))
-                       :direction :output :if-exists :supersede :if-does-not-exist :create)
-      (cl-json:encode-json object s))))
-
-(defun vec (list) (coerce list 'vector))
 
 (dump-json "celia-reference" `((:depth . ,(vec (mapcar #'first *reference*)))
                                (:theta . ,(vec (mapcar #'second *reference*)))))
@@ -176,7 +184,7 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                                             `((:form . ,(string-downcase form)) (:dt . ,dt)
                                               (:mass-balance-error . ,(richards-mass-balance-error problem start end))
                                               (:depth . ,(vec (mapcar #'first profile)))
-                                              (:theta . ,(vec (mapcar #'second profile)))))))))
+                                              (:theta . ,(vec (mapcar #'second profile))))))))))
 
 ;;; ------------------------------------------------------------------
 (format t "~&== 2. Phase 4 repeated with flow-driven water content and directional links ==~%")
@@ -190,6 +198,7 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
 (defun loam-parameters (theta)
   (flow-soil-parameters (ahl-literature-parameters) *loam* theta))
 
+(section "2a"
 (format t "~&  2a. steady rain q: water content (K(theta) = q), D_s, Peclet over the still range, directional ranges (um)~%")
 (format t "      q(um/s) mm/day  theta   D_s  | biotic steady: Pe  down  across  up | abiotic day one: Pe  down  across  up~%")
 (defparameter *range-table*
@@ -211,8 +220,9 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                       (finish-output)
                       `((:flux . ,q) (:theta . ,theta) (:diffusivity . ,d)
                         (:biotic . ,(vec b)) (:abiotic . ,(vec a))))))))
-(dump-json "flow-ranges" (vec *range-table*))
+(dump-json "flow-ranges" (vec *range-table*)))
 
+(section "2b"
 (format t "~&  2b. engine check: one induced producer under Richards-driven steady rain, q = 1 um/s, 1e9 degraders/L~%")
 (format t "      1600 um square (nearest-seed, seed 1); top flux, free drainage; steady state; ranges by 30-degree sectors~%")
 (let* ((q 1d0)
@@ -267,8 +277,9 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
             (format t "        mass balance (signal pools + exported, over produced): ~,1e; exported ~,3e of ~,3e produced~%"
                     (/ (abs (- (signal-pool-balance world :ahl) balance0)) (species-mass world :ahl-produced))
                     (species-exported world :ahl) (species-mass world :ahl-produced))
-            (finish-output)))))))
+            (finish-output))))))))
 
+(section "2c"
 (format t "~&  2c. percolation under steady rain: 600 patches, 4 mm square, seeds 1-20; margin 400 um~%")
 (format t "      fraction of layouts spanning across the flow (x), along it (y), directed downstream (y, relay);~%")
 (format t "      mean largest weak / strong component; one-way links. 'still' = same theta, no advection.~%")
@@ -314,12 +325,41 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                              (:still-across . ,(f still :spanning-across))
                              (:still-along . ,(f still :spanning-along))
                              (:still-weak . ,(m still :largest-weak-fraction)))))))))))
-(dump-json "flow-percolation" *percolation*)
+(dump-json "flow-percolation" *percolation*))
 
+(section "2d"
 (format t "~&  2d. hysteresis through weather (tagged simulation, Richards-driven theta):~%")
-(format t "      1.2 mm square, 1600 cells (nearest-seed, seed 1), 12 patches (layout seed 3), 1e9 degraders/L,~%")
-(format t "      constant induced production; top: rain 2 mm/h for 2 h, then evaporation 4 mm/day (limit -15000 cm);~%")
-(format t "      bottom held at -50 cm (moist subsoil); dt 30 s; 36 h; samples every 30 min~%")
+(format t "      the window is the top 1.2 mm of a 30 cm freely draining profile: a 1D column (0.3 mm cells) takes~%")
+(format t "      the weather; its flux at 1.2 mm depth is the window's bottom boundary. Window: 1.2 mm square,~%")
+(format t "      1600 cells (nearest-seed, seed 1), 12 patches (layout seed 3), 1e9 degraders/L, constant induced~%")
+(format t "      production; rain 2 mm/h for 2 h a day, then evaporation 4 mm/day (surface limit -15000 cm);~%")
+(format t "      start at h = -80 cm; dt 30 s; 36 h; samples every 30 min~%")
+(defun column-flux-history (soil weather h0 t-end dt depth)
+  "Run a 1 um wide column of 0.3 mm cells, 30 cm deep (free drainage), under WEATHER from head H0, and
+return (values FLUX-FN THETA-FN): the water flux into a layer DEPTH thick through its bottom (per unit
+width, piecewise constant over steps of DT) and the column's mean water content over that layer, as
+functions of time."
+  (let* ((dz 300d0) (n 1000) (k (round depth dz))
+         (problem (make-richards-problem (make-rectangular-tessellation 1 n :dx 1d0 :dy dz) :soil soil
+                                         :boundaries `((:top :atmospheric ,weather -1.5d8) (:bottom :free-drainage))))
+         (index (richards-problem-cell-index problem))
+         (stencil (richards-problem-stencil problem))
+         (i (cell-id->index index (1- k))) (j (cell-id->index index k))
+         (face (loop for f from (aref (flux-stencil-offsets stencil) i) below (aref (flux-stencil-offsets stencil) (1+ i))
+                     when (= (aref (flux-stencil-neighbors stencil) f) j) return f))
+         (steps (round t-end dt))
+         (volumes (make-array (1+ steps) :element-type 'double-float :initial-element 0d0))
+         (thetas (make-array (1+ steps) :element-type 'double-float :initial-element 0d0))
+         (state (make-richards-state problem h0)))
+    (flet ((layer-theta (st) (/ (loop for id below k sum (aref (richards-state-water-contents st) (cell-id->index index id))) k)))
+      (setf (aref thetas 0) (layer-theta state))
+      (loop for s from 1 to steps
+            do (setf state (run-richards problem state (* s dt) :dt (or (richards-state-next-dt state) 1d0) :dt-max 600d0)
+                     (aref volumes s) (aref (richards-state-face-volumes state) face)
+                     (aref thetas s) (layer-theta state))))
+    (flet ((slot (time) (max 1 (min steps (ceiling (- time 1d-9) dt)))))
+      (values (lambda (time) (let ((s (slot time))) (- (/ (- (aref volumes s) (aref volumes (1- s))) dt))))
+              (lambda (time) (aref thetas (min steps (round time dt))))))))
 (let* ((side 1200d0)
        (tess (voronoi-grid-tessellation (make-nearest-seed-grid 1200 1200 1600 :seed 1)))
        (positions (random-patch-positions 12 side side :seed 3))
@@ -327,6 +367,10 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
        (cell-positions (mapcar (lambda (id) (cell-position tess id)) nodes))
        (weather (rain-evaporation-schedule :rain-rate (/ 2000d0 3600d0) :rain-time 7200d0
                                            :evaporation-rate (/ 4000d0 86400d0) :period 86400d0))
+       (column-theta nil)
+       (bottom-flux (multiple-value-bind (flux theta) (column-flux-history *loam* weather -8d5 (* 36 3600d0) 30d0 1200d0)
+                      (setf column-theta theta)
+                      flux))
        (base (loam-parameters 0.3d0))
        (parameters (with-parameter-values base
                      `((:basal-production . ,(+ (parameter-value base :basal-production)
@@ -338,8 +382,8 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                                                     :degrader-density 1d9 :producer-density 5d14))
            (problem (make-richards-problem tess :soil *loam* :cell-index (mechanistic-world-cell-index world)
                                                 :boundaries `((:top :atmospheric ,weather -1.5d8)
-                                                              (:bottom :head -5d5))))
-           (state (make-richards-state problem (lambda (id) (+ -5d5 -1200d0 (cdr (cell-position tess id))))))
+                                                              (:bottom :flux ,bottom-flux))))
+           (state (make-richards-state problem -8d5))
            (balance0 (tagged-pool-balance world))
            (t0 (get-internal-real-time)))
       (multiple-value-bind (samples end)
@@ -353,15 +397,18 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                    (max 1d-300 (species-mass world :tags-produced))))
         (let ((second-cycle (or (remove-if (lambda (s) (< (getf s :time) 86400d0)) samples)
                                 samples))) ; quick mode has no second cycle
-          (format t "        hysteresis gap (second cycle): mean degree ~,3f, largest weak ~,3f, one-way ~,3f~%"
-                  (hysteresis-gap second-cycle :key :mean-degree)
-                  (hysteresis-gap second-cycle :key :largest-weak-fraction)
-                  (hysteresis-gap second-cycle :key :one-way-fraction)))
-        (format t "        time(h) theta  inflow(um^2/s)  weak  strong  degree  one-way  across along directed~%")
+          ;; NIL (printed n/a) when the samples do not hold both a drying and a wetting branch
+          (format t "        hysteresis gap (second cycle): mean degree ~:[n/a~;~:*~,3f~], largest weak ~:[n/a~;~:*~,3f~], one-way ~:[n/a~;~:*~,3f~]~%"
+                  (ignore-errors (hysteresis-gap second-cycle :key :mean-degree))
+                  (ignore-errors (hysteresis-gap second-cycle :key :largest-weak-fraction))
+                  (ignore-errors (hysteresis-gap second-cycle :key :one-way-fraction))))
+        (format t "        window theta ~,3f-~,3f over the run~%"
+                (reduce #'min samples :key (lambda (s) (getf s :theta))) (reduce #'max samples :key (lambda (s) (getf s :theta))))
+        (format t "        time(h) theta (column) inflow(um^2/s)  weak  strong  degree  one-way  across along directed~%")
         (dolist (s samples)
           (when (zerop (mod (round (getf s :time)) 7200))
-            (format t "        ~5,1f  ~5,3f  ~10,3f   ~5,3f  ~5,3f  ~6,2f  ~6,3f    ~3a   ~3a   ~3a~%"
-                    (/ (getf s :time) 3600) (getf s :theta) (getf s :inflow)
+            (format t "        ~5,1f  ~5,3f (~5,3f) ~10,3f   ~5,3f  ~5,3f  ~6,2f  ~6,3f    ~3a   ~3a   ~3a~%"
+                    (/ (getf s :time) 3600) (getf s :theta) (funcall column-theta (getf s :time)) (getf s :inflow)
                     (float (getf s :largest-weak-fraction)) (float (getf s :largest-strong-fraction))
                     (float (getf s :mean-degree)) (float (getf s :one-way-fraction))
                     (if (getf s :spanning-across) "yes" "no") (if (getf s :spanning-along) "yes" "no")
@@ -372,13 +419,15 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
                         collect `((:advect . ,(if advect t :false))
                                   (:samples . ,(vec (mapcar (lambda (s)
                                                               `((:time . ,(getf s :time)) (:theta . ,(getf s :theta))
+                                                                (:column-theta . ,(funcall column-theta (getf s :time)))
                                                                 (:inflow . ,(getf s :inflow))
                                                                 (:weak . ,(float (getf s :largest-weak-fraction)))
                                                                 (:strong . ,(float (getf s :largest-strong-fraction)))
                                                                 (:degree . ,(float (getf s :mean-degree)))
                                                                 (:one-way . ,(float (getf s :one-way-fraction)))))
-                                                            samples))))))))
+                                                            samples)))))))))
 
+(section "2e"
 (format t "~&  2e. Peclet and Damkohler numbers of the links (biotic steady, layout seed 1, 600 patches):~%")
 (dolist (q '(1d-3 0.1d0 1d0))
   (let* ((theta (steady-drainage-water-content *loam* q))
@@ -394,4 +443,4 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
             q theta (length edges) median (edge-peclet q d median)
             (if lengths (edge-peclet q d (car (last lengths))) 0d0)
             (edge-damkohler p theta median :degrader-density 1d9))))
-(finish-output)
+(finish-output))
