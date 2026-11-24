@@ -210,3 +210,77 @@ concentration C0 in water content THETA0, no reactions."
       (let ((e41 (error-at 41)) (e82 (error-at 82)))
         (is (< e82 0.1d0) "5 um cells: relative L2 error ~a" e82)
         (is (< (/ e82 e41) 0.65d0) "first order: ~a -> ~a" e41 e82)))))
+
+(test log-log-interpolant-follows-a-smooth-decreasing-function
+  ;; linear in ln x, ln K0 errs by about du^2 x / 8 (ln K0 ~ -x = -e^u):
+  ;; du = ln(2000)/400, so below 1e-3 out to x = 20
+  (let ((f (log-log-interpolant #'bessel-k0 0.01d0 20d0 400)))
+    (dolist (x '(0.013d0 0.5d0 1.7d0 9.3d0 19.5d0))
+      (is (< (abs (- (funcall f x) (bessel-k0 x))) (* 1d-3 (bessel-k0 x))) "at ~a" x))
+    (is (= (bessel-k0 0.001d0) (funcall f 0.001d0)) "below the table: the function itself")
+    (is (= 0d0 (funcall f 25d0)) "beyond the table: zero")))
+
+(test tabulated-transient-field-matches-the-direct-one
+  (let* ((soil (um-loam))
+         (p (flow-soil-parameters (ahl-literature-parameters) soil 0.33d0)))
+    (multiple-value-bind (direct threshold) (flow-signal-field p 0.3d0 '() :transient :tabulate nil)
+      (let ((tabulated (flow-signal-field p 0.3d0 '() :transient)))
+        (dolist (point '((300d0 . 0d0) (-200d0 . 100d0) (50d0 . 500d0)))
+          (let ((exact (funcall direct (car point) (cdr point))))
+            (is (< (abs (- (funcall tabulated (car point) (cdr point)) exact)) (* 1d-3 exact))
+                "at ~a: ~a vs ~a (threshold ~a)" point (funcall tabulated (car point) (cdr point))
+                exact threshold)))))))
+
+(test flow-connectivity-sample-compares-flow-with-still-water
+  (let* ((soil (um-loam))
+         (positions (random-patch-positions 60 800d0 800d0 :seed 2))
+         (scenario '(:degrader-density 1d9))
+         (none (flow-connectivity-sample (ahl-literature-parameters) soil 0d0 positions 800d0 800d0
+                                         80d0 scenario :steady))
+         (storm (flow-connectivity-sample (ahl-literature-parameters) soil 2d0 positions 800d0 800d0
+                                          80d0 scenario :steady)))
+    (is (equal (getf none :flow) (getf none :still)) "no flux: the same graph")
+    (is (zerop (getf none :peclet)))
+    (is (plusp (getf (getf storm :flow) :one-way-fraction)))
+    (is (zerop (getf (getf storm :still) :one-way-fraction)))
+    (is (> (getf storm :theta) (getf none :theta)) "rain wets the soil")
+    (is (< (abs (- (getf storm :peclet)
+                   (edge-peclet 2d0 (getf storm :diffusivity) (getf storm :still-range))))
+           1d-12))))
+
+(test edge-peclet-is-advection-over-diffusion-along-the-edge
+  (is (= 4d0 (edge-peclet 2d0 50d0 100d0))))
+
+(test rain-evaporation-schedule-alternates
+  (let ((weather (rain-evaporation-schedule :rain-rate 0.5d0 :rain-time 3600d0
+                                            :evaporation-rate 0.03d0 :period 86400d0)))
+    (is (= 0.5d0 (funcall weather 100d0)))
+    (is (= -0.03d0 (funcall weather 7200d0)))
+    (is (= 0.5d0 (funcall weather (+ 86400d0 10d0))) "periodic")))
+
+(test connectivity-over-flow-samples-the-tagged-graph
+  (let* ((soil (um-loam))
+         (tess (make-rectangular-tessellation 8 8 :dx 25d0 :dy 25d0))
+         (nodes '(9 14 49 54))
+         (positions (mapcar (lambda (id) (cell-position tess id)) nodes))
+         (parameters (flow-soil-parameters (ahl-literature-parameters) soil 0.3d0)))
+    (dolist (advect '(t nil))
+      (let* ((world (make-tagged-ahl-world tess nodes :parameters parameters :dt 20d0
+                                                      :degrader-density 1d9 :producer-density 5d14))
+             (problem (make-richards-problem tess :soil soil
+                                                  :cell-index (mechanistic-world-cell-index world)
+                                                  :boundaries '((:top :flux 0.5d0) (:bottom :free-drainage))))
+             (state (make-richards-state problem (steady-drainage-head soil 0.1d0)))
+             (balance0 (tagged-pool-balance world)))
+        (multiple-value-bind (samples end)
+            (connectivity-over-flow world problem state nodes positions :millington-quirk 30 10 70d0
+                                    200d0 200d0 :advect advect)
+          (is (= 3 (length samples)))
+          (is (= 600d0 (richards-state-time end)))
+          (is (every (lambda (s) (and (getf s :time) (getf s :theta) (getf s :one-way-fraction)))
+                     samples))
+          (is (< (abs (- (tagged-pool-balance world) balance0))
+                 (* 1d-9 (max 1d0 (species-mass world :tags-produced))))
+              "advect ~a: tagged balance incl. exports" advect)
+          (unless advect
+            (is (= 0d0 (species-exported world (tag-name 0))) "no advection: nothing carried out")))))))

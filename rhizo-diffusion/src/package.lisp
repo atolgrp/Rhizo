@@ -459,6 +459,13 @@
    #:uniform-flow-field
    #:sector-predicate
 
+   ;; Phase 4 repeated with flow (Phase 5)
+   #:log-log-interpolant
+   #:edge-peclet
+   #:flow-connectivity-sample
+   #:rain-evaporation-schedule
+   #:connectivity-over-flow
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))

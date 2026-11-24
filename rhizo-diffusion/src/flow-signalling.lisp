@@ -40,13 +40,16 @@ no outflow), as fresh vectors - a flow field for SET-FLOW-FIELD!."
                  (richards-state-boundary-volumes end) (richards-state-boundary-volumes start)))))
 
 (defun step-flow-transport! (world problem state relation &key (blocked-p (constantly nil))
-                                                              richards-options)
+                                                              richards-options (advect t))
   "Advance WORLD by one step of its DT with Richards flow: PROBLEM from
 STATE (which must be at WORLD's time and share its cell index) to the end
 of the step, then water content, flow field and transport (see the file
 header), with relative diffusivity RELATION and BLOCKED-P as for
 SET-WATER-CONTENT!. RICHARDS-OPTIONS is a plist passed to RUN-RICHARDS.
-Changes WORLD; returns the new Richards state."
+With ADVECT NIL the water content still follows the flow but solute is
+not carried (no flow field): the Phase 3 picture with flow-driven theta,
+for isolating what advection does. Changes WORLD; returns the new
+Richards state."
   (let* ((dt (mechanistic-world-dt world))
          (index (mechanistic-world-cell-index world))
          (time (* (mechanistic-world-tick world) dt)))
@@ -62,20 +65,23 @@ Changes WORLD; returns the new Richards state."
       (multiple-value-bind (faces outflows) (richards-mean-fluxes state next)
         (set-water-content! world (lambda (id) (aref theta (cell-id->index index id))) relation
                             :blocked-p blocked-p)
-        (set-flow-field! world faces outflows))
+        (if advect
+            (set-flow-field! world faces outflows)
+            (set-flow-field! world nil nil)))
       (step-mechanistic! world)
       next)))
 
 (defun run-with-flow! (world problem state n-steps relation &key (blocked-p (constantly nil))
-                                                                 richards-options observer)
+                                                                 richards-options observer (advect t))
   "Advance WORLD by N-STEPS calls to STEP-FLOW-TRANSPORT! from Richards
-STATE; OBSERVER, if given, is called with WORLD and the flow state after
-each step. Returns the final Richards state."
+STATE (ADVECT as there); OBSERVER, if given, is called with WORLD and the
+flow state after each step. Returns the final Richards state."
   (call-with-kernel
    (lambda ()
      (dotimes (k n-steps state)
        (setf state (step-flow-transport! world problem state relation :blocked-p blocked-p
-                                                                      :richards-options richards-options))
+                                                                      :richards-options richards-options
+                                                                      :advect advect))
        (when observer (funcall observer world state))))))
 
 ;;; Directional point sources (see the file header).
@@ -112,25 +118,58 @@ SCALE is a typical length for the root search (CROSSING-DISTANCE)."
   (crossing-distance (lambda (r) (funcall concentration (* r (cos angle)) (* r (sin angle))))
                      threshold scale))
 
-(defun flow-signal-field (parameters flux scenario measure)
+(defun log-log-interpolant (fn x-min x-max n)
+  "Return a function approximating the positive, smooth FN on [X-MIN,
+X-MAX] by linear interpolation of ln FN in ln x over N + 1 points (exact at
+the points); FN itself below X-MIN, 0 above X-MAX. For fields evaluated
+very many times (FLOW-SIGNAL-FIELD's transient)."
+  (let* ((u-min (log x-min)) (du (/ (- (log x-max) u-min) n))
+         (table (make-array (1+ n) :element-type 'double-float)))
+    (dotimes (i (1+ n))
+      (setf (aref table i) (log (funcall fn (exp (+ u-min (* i du)))))))
+    (lambda (x)
+      (cond ((< x x-min) (funcall fn x))
+            ((> x x-max) 0d0)
+            (t (let* ((v (/ (- (log x) u-min) du))
+                      (i (min (1- n) (floor v)))
+                      (w (- v i)))
+                 (exp (+ (* (- 1 w) (aref table i)) (* w (aref table (1+ i)))))))))))
+
+(defun flow-signal-field (parameters flux scenario measure &key (tabulate t))
   "Return (values CONCENTRATION THRESHOLD SCALE) for a producer patch of
 CALLING-DISTANCE-SCENARIO with PARAMETERS and SCENARIO in a uniform Darcy
 FLUX: CONCENTRATION a function of (along across) - the steady field for
 MEASURE :STEADY, at the scenario's :TIME for :TRANSIENT - or NIL where the
-signal cannot move (no connected water)."
+signal cannot move (no connected water). With TABULATE the transient's
+isotropic factor is tabulated (LOG-LOG-INTERPOLANT, 400 intervals) out to
+the downstream calling distance: measured agreement 1e-3 or better."
   (let* ((inputs (calling-distance-scenario parameters scenario))
          (s (getf inputs :source-rate)) (d (getf inputs :diffusivity))
          (k (getf inputs :decay-rate)) (capacity (getf inputs :capacity))
-         (time (scenario-value scenario :time)))
+         (threshold (getf inputs :threshold))
+         (time (scenario-value scenario :time))
+         (scale (if (zerop d) 1d0 (sqrt (/ d (advective-decay-rate k flux d))))))
     (values (unless (zerop d)
               (ecase measure
                 (:steady (lambda (along across)
                            (advective-point-source-steady-state s d k flux along across)))
-                (:transient (lambda (along across)
-                              (advective-point-source-transient s d k capacity flux along across
-                                                                time)))))
-            (getf inputs :threshold)
-            (if (zerop d) 1d0 (sqrt (/ d (advective-decay-rate k flux d)))))))
+                (:transient
+                 (let ((direct (lambda (along across)
+                                 (advective-point-source-transient s d k capacity flux along across
+                                                                   time))))
+                   (if (not tabulate)
+                       direct
+                       (let* ((k-eff (advective-decay-rate k flux d))
+                              (r-max (* 1.05d0 (directional-calling-distance direct threshold 0d0
+                                                                             scale)))
+                              (isotropic (log-log-interpolant
+                                          (lambda (r) (point-source-transient s d k-eff capacity r time))
+                                          (* 1d-3 r-max) r-max 400)))
+                         (lambda (along across)
+                           (* (exp (/ (* flux along) (* 2 d)))
+                              (funcall isotropic (sqrt (+ (* along along) (* across across))))))))))))
+            threshold
+            scale)))
 
 (defun flow-signalling-edges (positions parameters flux scenario measure
                               &key (direction '(0d0 . 1d0)))
@@ -295,3 +334,77 @@ profiles (RADIAL-PROFILE's KEEP)."
         (and (or (/= dx 0) (/= dy 0))
              (let ((difference (- (atan across along) angle)))
                (<= (abs (atan (sin difference) (cos difference))) half-width)))))))
+
+;;; Phase 4 repeated with flow (PLAN.md, Phase 5 gate).
+
+(defun edge-peclet (flux diffusivity length)
+  "Return the Peclet number q L / D_s of an edge of LENGTH: advection by
+the Darcy FLUX against diffusion with bulk DIFFUSIVITY D_s along it (bulk
+form, as EDGE-DAMKOHLER). Above 1, flow carries the signal farther than
+it diffuses."
+  (/ (* flux length) diffusivity))
+
+(defun flow-connectivity-sample (parameters soil flux positions width height margin scenario measure)
+  "Return, for steady rain FLUX on SOIL (water content
+STEADY-DRAINAGE-WATER-CONTENT, signalling soil FLOW-SOIL-PARAMETERS of
+PARAMETERS), the plist :FLUX, :THETA, :DIFFUSIVITY (D_s), :STILL-RANGE (the
+still-water calling distance for MEASURE), :PECLET (EDGE-PECLET over that
+range), and the FLOW-GRAPH-CONNECTIVITY of the patches at POSITIONS on
+WIDTH x HEIGHT (MARGIN) with links under that flow (:FLOW) and in still
+water at the same theta (:STILL) - isolating what advection does."
+  (let* ((theta (steady-drainage-water-content soil flux))
+         (p (flow-soil-parameters parameters soil theta))
+         (inputs (calling-distance-scenario p scenario))
+         (d (getf inputs :diffusivity))
+         (range (getf inputs measure)))
+    (flet ((connectivity (q)
+             (flow-graph-connectivity positions (flow-signalling-edges positions p q scenario measure)
+                                      width height margin)))
+      (list :flux flux :theta theta :diffusivity d :still-range range
+            :peclet (if (zerop d) 0d0 (edge-peclet flux d range))
+            :flow (connectivity flux)
+            :still (connectivity 0d0)))))
+
+(defun rain-evaporation-schedule (&key rain-rate rain-time evaporation-rate period)
+  "Return a periodic surface flux of time: RAIN-RATE (inflow) for the
+first RAIN-TIME of every PERIOD, then -EVAPORATION-RATE (outflow) - an
+:ATMOSPHERIC boundary's demand (RICHARDS boundaries)."
+  (lambda (time)
+    (if (< (mod time period) rain-time) rain-rate (- evaporation-rate))))
+
+(defun connectivity-over-flow (world problem state node-cells positions relation n-steps
+                               sample-every threshold width height
+                               &key (margin (/ width 10d0)) (advect t) richards-options)
+  "Run the tagged WORLD for N-STEPS with Richards flow (PROBLEM from STATE;
+RUN-WITH-FLOW!, ADVECT as for STEP-FLOW-TRANSPORT!) and every SAMPLE-EVERY
+steps record the plist :TIME, :THETA (area-mean water content), :INFLOW
+\(mean boundary inflow rate over the interval, volume per time) and the
+FLOW-GRAPH-CONNECTIVITY of the TAGGED-EDGES (THRESHOLD) among the patches in
+NODE-CELLS at POSITIONS on WIDTH x HEIGHT. RELATION is a relative-
+diffusivity function, or a name resolved with the porosity of the problem's
+soil (FLOW-SOIL-PARAMETERS). Returns (values SAMPLES FINAL-STATE). Mutates
+WORLD."
+  (let* ((soil (svref (richards-problem-soils problem) 0))
+         (xi (if (functionp relation)
+                 relation
+                 (relative-diffusivity-model relation (flow-soil-parameters (soil-parameters) soil
+                                                                            (van-genuchten-theta-s soil)))))
+         (areas (flux-stencil-areas (richards-problem-stencil problem)))
+         (total-area (reduce #'+ areas)))
+    (values (loop for done from sample-every to n-steps by sample-every
+                  collect (let ((before state))
+                            (setf state (run-with-flow! world problem state sample-every xi
+                                                        :advect advect
+                                                        :richards-options richards-options))
+                            (list* :time (richards-state-time state)
+                                   :theta (/ (loop for i below (length areas)
+                                                   sum (* (aref areas i)
+                                                          (aref (richards-state-water-contents state) i)))
+                                             total-area)
+                                   :inflow (/ (- (richards-cumulative-inflow state)
+                                                 (richards-cumulative-inflow before))
+                                              (- (richards-state-time state) (richards-state-time before)))
+                                   (flow-graph-connectivity positions
+                                                            (tagged-edges world node-cells threshold)
+                                                            width height margin))))
+            state)))
