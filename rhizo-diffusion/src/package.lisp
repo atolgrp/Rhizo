@@ -424,8 +424,6 @@
    #:richards-cumulative-inflow
    #:richards-mass-balance-error
    #:richards-mass-balance-ratio
-   #:cell-id-
-   #:index-
 
    ;; advective transport: flow fields and exports (Phase 5)
    #:set-flow-field!
