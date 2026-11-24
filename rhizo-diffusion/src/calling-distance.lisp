@@ -169,7 +169,7 @@ biodegradation by :DEGRADER-DENSITY degraders is linear (AHL far below Km =
 1.5 uM); sorption is at local equilibrium; the patch's production is fixed
 \(no feedback from its own AHL); receivers do not take up AHL; the slab is
 2D (see signalling.lisp), so ranges exceed those around a point source in
-3D."
+3D. Where D_s is zero (no connected water) both ranges are zero."
   (flet ((p (name) (parameter-value parameters name))
          (v (name) (scenario-value scenario name)))
     (let* ((theta (p :water-content))
@@ -184,11 +184,16 @@ biodegradation by :DEGRADER-DENSITY degraders is linear (AHL far below Km =
                  (/ (* (p :biodegradation-kcat) (v :degrader-density)) (p :biodegradation-km))))
            (capacity (+ theta (sorption-coefficient parameters)))
            (threshold (p :receiver-threshold)))
-      (list :steady (steady-calling-distance s d k threshold)
-            :transient (transient-calling-distance s d k capacity threshold (v :time))
-            :source-rate s :diffusivity d :decay-rate k :capacity capacity
-            :retardation (/ capacity theta)
-            :decay-length (sqrt (/ d k)) :threshold threshold))))
+      (if (zerop d)
+          ;; no connected water (e.g. below the Mullins-Sommer threshold)
+          (list :steady 0d0 :transient 0d0
+                :source-rate s :diffusivity d :decay-rate k :capacity capacity
+                :retardation (/ capacity theta) :decay-length 0d0 :threshold threshold)
+          (list :steady (steady-calling-distance s d k threshold)
+                :transient (transient-calling-distance s d k capacity threshold (v :time))
+                :source-rate s :diffusivity d :decay-rate k :capacity capacity
+                :retardation (/ capacity theta)
+                :decay-length (sqrt (/ d k)) :threshold threshold)))))
 
 (defun calling-distance-sensitivity (parameters
                                      &key scenario (factor 1.1d0)

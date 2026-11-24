@@ -308,6 +308,12 @@
    #:calling-distance-scenario
    #:calling-distance-sensitivity
 
+   ;; signalling range against water content (Phase 3 gate)
+   #:range-versus-water
+   #:water-transition
+   #:water-sensitivity
+   #:single-producer-calling-distance
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
