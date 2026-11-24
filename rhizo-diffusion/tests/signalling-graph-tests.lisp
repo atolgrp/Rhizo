@@ -87,3 +87,73 @@
       (is (< 0.1d0 theta-c 0.45d0))
       (is (spans (+ theta-c 1d-4)))
       (is (not (spans (- theta-c 1d-4)))))))
+
+;;; Tagged signal: each patch's AHL as its own species (PLAN.md, Phase 4)
+
+(defun tagged-test-grid ()
+  (voronoi-grid-tessellation (make-nearest-seed-grid 120 120 144 :seed 5)))
+
+(defun fast-decay-parameters ()
+  "Literature AHL parameters with a decay length of about 30 um under
+Millington-Quirk at theta 0.3, no sorption, no induction."
+  (let* ((base (ahl-literature-parameters))
+         (xi (funcall (relative-diffusivity-model :millington-quirk base) 0.3d0)))
+    (with-parameter-values base `((:hydrolysis-rate . ,(/ (* 490d0 xi) (* 0.3d0 900d0)))
+                                  (:kd . 0d0) (:induced-production . 0d0)))))
+
+(test a-single-tag-is-the-ahl-field
+  ;; one patch, linear production: the tag is exactly the AHL of an AHL world
+  (let* ((tess (tagged-test-grid))
+         (node (nearest-cell tess '(60d0 . 60d0)))
+         (parameters (fast-decay-parameters))
+         (tagged (make-tagged-ahl-world tess (list node) :parameters parameters :dt 0.5d0
+                                                         :producer-density 1d14))
+         (plain (make-ahl-world tess :parameters parameters :dt 0.5d0
+                                     :initial-state (lambda (id) (when (equal id node)
+                                                                   '((:producer . 1d14)))))))
+    (run-mechanistic! tagged 40)
+    (run-mechanistic! plain 40)
+    (let ((a (species-cells tagged :tag-0)) (b (species-cells plain :ahl)))
+      (is (< (reduce #'max (mapcar (lambda (x y) (abs (- (third x) (third y)))) a b))
+             (* 1d-12 (reduce #'max (mapcar #'third b))))))))
+
+(test tags-add-up-to-the-joint-field
+  ;; two patches: each tag equals that patch's field alone (linearity)
+  (let* ((tess (tagged-test-grid))
+         (nodes (list (nearest-cell tess '(40d0 . 60d0)) (nearest-cell tess '(80d0 . 60d0))))
+         (parameters (fast-decay-parameters))
+         (both (make-tagged-ahl-world tess nodes :parameters parameters :dt 0.5d0))
+         (second-alone (make-tagged-ahl-world tess (list (second nodes)) :parameters parameters
+                                                                        :dt 0.5d0)))
+    (run-mechanistic! both 30)
+    (run-mechanistic! second-alone 30)
+    (is (< (reduce #'max (mapcar (lambda (x y) (abs (- (third x) (third y))))
+                                 (species-cells both :tag-1) (species-cells second-alone :tag-0)))
+           1d-12))))
+
+(test tagged-edges-read-each-tag-at-each-patch
+  (let* ((tess (tagged-test-grid))
+         (nodes (list (nearest-cell tess '(40d0 . 60d0)) (nearest-cell tess '(70d0 . 60d0))
+                      (nearest-cell tess '(110d0 . 110d0))))
+         (world (make-tagged-ahl-world tess nodes :parameters (fast-decay-parameters) :dt 0.5d0)))
+    (step-to-steady-state! world :tag-0)
+    (let* ((c (lambda (tag node)
+                (/ (aref (mechanistic-world-state world)
+                         (cell-id->index (mechanistic-world-cell-index world) node)
+                         (gethash (tag-name tag) (mechanistic-world-species-index world)))
+                   0.3d0)))
+           ;; threshold between what patch 0 delivers to patch 1 and to patch 2
+           (threshold (sqrt (* (funcall c 0 (second nodes)) (funcall c 0 (third nodes)))))
+           (edges (tagged-edges world nodes threshold)))
+      (is (member '(0 . 1) edges :test #'equal))
+      (is (not (member '(0 . 2) edges :test #'equal))))))
+
+(test tagged-world-keeps-its-pool-balance
+  (let* ((tess (tagged-test-grid))
+         (nodes (list (nearest-cell tess '(40d0 . 60d0)) (nearest-cell tess '(80d0 . 60d0))))
+         (world (make-tagged-ahl-world tess nodes :dt 50d0 :feedback t))
+         (before (tagged-pool-balance world)))
+    (run-mechanistic! world 40)
+    (is (plusp (species-mass world :tags-produced)))
+    (is (< (abs (- (tagged-pool-balance world) before))
+           (* 1d-12 (species-mass world :tags-produced))))))

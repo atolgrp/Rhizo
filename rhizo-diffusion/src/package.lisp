@@ -329,6 +329,16 @@
    #:predicted-percolation-water-content
    #:percolation-water-content
 
+   ;; tagged signal: each patch's AHL as its own species (Phase 4)
+   #:tag-name
+   #:node-name
+   #:tagged-species
+   #:total-tag-concentration
+   #:tagged-reactions
+   #:make-tagged-ahl-world
+   #:tagged-edges
+   #:tagged-pool-balance
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))

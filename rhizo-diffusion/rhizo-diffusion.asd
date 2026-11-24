@@ -32,7 +32,8 @@
                (:file "signalling-analysis")
                (:file "calling-distance")
                (:file "water-range")
-               (:file "signalling-graph"))
+               (:file "signalling-graph")
+               (:file "tagged-signal"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
 (asdf:defsystem "rhizo-diffusion/examples"
