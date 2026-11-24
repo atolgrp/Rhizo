@@ -188,7 +188,7 @@ biodegradation by :DEGRADER-DENSITY degraders is linear (AHL far below Km =
            (capacity (+ theta (sorption-coefficient parameters)))
            (threshold (p :receiver-threshold)))
       (if (zerop d)
-          ;; no connected water (e.g. below the Mullins-Sommer threshold)
+          ;; no connected water (e.g. below the Mullins-Sommers threshold)
           (list :steady 0d0 :transient 0d0
                 :source-rate s :diffusivity d :decay-rate k :capacity capacity
                 :retardation (/ capacity theta) :decay-length 0d0 :threshold threshold)

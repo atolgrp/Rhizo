@@ -19,7 +19,7 @@
 ;;; doi:10.1029/2011WR011653) measured bromide diffusion in a sand, a sandy
 ;;; clay loam and a clay. Millington-Quirk with its standard constants
 ;;; overestimated all three and had the highest error; a quadratic in theta
-;;; (Mullins & Sommer 1986) had the largest Akaike weight for the sand and
+;;; (Mullins & Sommers 1986) had the largest Akaike weight for the sand and
 ;;; the sandy clay loam.
 
 (defun millington-quirk (porosity)
@@ -32,18 +32,18 @@ gamma = 1, n = 10/3, m = 2). The baseline relation of PLAN.md, Phase 3."
 
 (defun papendick-campbell (coefficient exponent)
   "Return the power-law relative diffusivity xi(theta) = COEFFICIENT
-theta^EXPONENT (Papendick & Campbell 1980: 2.8 theta^3; Chou et al. 2012,
+theta^EXPONENT (Papendick & Campbell 1981: 2.8 theta^3; Chou et al. 2012,
 eq. 4)."
   (lambda (theta) (* coefficient (expt (float theta 1d0) exponent))))
 
 (defun mullins-sommer-threshold (delta mu)
-  "Return the water content -MU / DELTA at which the Mullins-Sommer
+  "Return the water content -MU / DELTA at which the Mullins-Sommers
 relative diffusivity falls to zero."
   (- (/ mu delta)))
 
 (defun mullins-sommer (delta mu)
   "Return the quadratic relative diffusivity xi(theta) = DELTA theta^2 + MU
-theta (Mullins & Sommer 1986; Chou et al. 2012, eq. 7), taken as zero at
+theta (Mullins & Sommers 1986; Chou et al. 2012, eq. 7), taken as zero at
 and below its threshold (MULLINS-SOMMER-THRESHOLD), where the water films
 no longer connect and diffusion stops."
   (let ((threshold (mullins-sommer-threshold delta mu)))
@@ -75,17 +75,17 @@ and the constants of the relative-diffusivity relations."
     :source "Scenario choice: volumetric water content (Phase 3 makes it a field)")
    (make-model-parameter
     :mullins-sommer-delta 2.1679d0 "1"
-    :source "Chou et al. 2012, Water Resour Res 48:W10539, doi:10.1029/2011WR011653, Table 4: Mullins-Sommer quadratic fitted to their sandy clay loam"
+    :source "Chou et al. 2012, Water Resour Res 48:W10539, doi:10.1029/2011WR011653, Table 4: Mullins-Sommers quadratic fitted to their sandy clay loam"
     :note "With MU, threshold water content 0.2505. Sand: delta 0.2038, mu -0.0244 (threshold 0.120).")
    (make-model-parameter
     :mullins-sommer-mu -0.5431d0 "1"
-    :source "Chou et al. 2012, Table 4: Mullins-Sommer quadratic fitted to their sandy clay loam")
+    :source "Chou et al. 2012, Table 4: Mullins-Sommers quadratic fitted to their sandy clay loam")
    (make-model-parameter
     :papendick-campbell-coefficient 2.8d0 "1"
-    :source "Papendick & Campbell 1980, as given by Chou et al. 2012 (eq. 4, c = 2.8)")
+    :source "Papendick & Campbell 1981, as given by Chou et al. 2012 (eq. 4, c = 2.8)")
    (make-model-parameter
     :papendick-campbell-exponent 3d0 "1"
-    :source "Papendick & Campbell 1980, as given by Chou et al. 2012 (eq. 4, exponent 3.0)")))
+    :source "Papendick & Campbell 1981, as given by Chou et al. 2012 (eq. 4, exponent 3.0)")))
 
 (defun relative-diffusivity-model (name parameters)
   "Return the relative diffusivity xi(theta) called NAME - :MILLINGTON-QUIRK,

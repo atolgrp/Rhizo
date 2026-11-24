@@ -25,7 +25,7 @@
   (format t "  ~5,2f  ~{~20,5f~}~%" theta
           (mapcar (lambda (r) (funcall (relative-diffusivity-model r (soil-parameters)) theta))
                   *relations*)))
-(format t "  Mullins-Sommer threshold (sandy clay loam, Chou et al. 2012): ~,4f~%"
+(format t "  Mullins-Sommers threshold (sandy clay loam, Chou et al. 2012): ~,4f~%"
         (mullins-sommer-threshold (parameter-value (soil-parameters) :mullins-sommer-delta)
                                   (parameter-value (soil-parameters) :mullins-sommer-mu)))
 (finish-output)
