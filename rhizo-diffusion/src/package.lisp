@@ -171,8 +171,13 @@
    #:mechanistic-world-tick
    #:mechanistic-world-diffusion-scheme
    #:mechanistic-world-diffusivities
+   #:mechanistic-world-capacities
+   #:species-field-array
    #:diffusivity-array
+   #:capacity-array
+   #:set-species-column!
    #:set-species-diffusivity!
+   #:set-species-capacity!
    #:world-stable-timestep
    #:field-initial-state
 
@@ -188,6 +193,7 @@
    #:stencil-net-flux
    #:harmonic-mean
    #:stencil-stable-timestep
+   #:intensity-column
    #:uniform-column
    #:state-column
 

@@ -64,6 +64,7 @@
                (:file "implicit-diffusion-tests")
                (:file "diffusivity-field-tests")
                (:file "imex-tests")
+               (:file "capacity-tests")
                (:file "pfas-example-tests")
                (:file "parameters-tests")
                (:file "signalling-tests")

@@ -103,17 +103,28 @@ the cell's area to get dx_i/dt."
           sum (* (aref conductances k) (harmonic-mean di (aref diffusivity j)) (- (aref x j) xi))
             of-type double-float)))
 
-(defun stencil-stable-timestep (stencil diffusivity &key (safety-factor 0.9d0))
-  "Return SAFETY-FACTOR times the smallest area_i / (2 * STENCIL-TOTAL-
-CONDUCTANCE) over the cells of STENCIL with DIFFUSIVITY (one value per
-cell): the explicit-diffusion stability bound. Cells with no conducting
-face do not constrain it; infinity if none conducts."
+(defun stencil-stable-timestep (stencil diffusivity &key (safety-factor 0.9d0) capacity)
+  "Return SAFETY-FACTOR times the smallest area_i kappa_i / (2 *
+STENCIL-TOTAL-CONDUCTANCE) over the cells of STENCIL with DIFFUSIVITY (one
+value per cell) and CAPACITY kappa (one value per cell, default 1): the
+explicit-diffusion stability bound. Cells with no conducting face do not
+constrain it; infinity if none conducts."
   (let ((areas (flux-stencil-areas stencil)))
     (* safety-factor
        (reduce #'min (loop for i below (length areas)
                            for g = (stencil-total-conductance stencil diffusivity i)
-                           when (plusp g) collect (/ (aref areas i) (* 2.0d0 g)))
+                           when (plusp g)
+                             collect (/ (* (aref areas i) (if capacity (aref capacity i) 1d0))
+                                        (* 2.0d0 g)))
                :initial-value sb-ext:double-float-positive-infinity))))
+
+(defun intensity-column (column capacity)
+  "Return COLUMN (amounts per cell volume) divided element-wise by CAPACITY
+- the quantity diffusion equalises, e.g. a pore-water concentration - as a
+fresh vector; COLUMN itself when CAPACITY is NIL."
+  (if capacity
+      (map '(simple-array double-float (*)) #'/ column capacity)
+      column))
 
 (defun uniform-column (n value)
   "Return a fresh (simple-array double-float (N)) filled with VALUE."

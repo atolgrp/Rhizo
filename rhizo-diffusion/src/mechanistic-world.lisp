@@ -24,9 +24,38 @@
   state           ; (array double-float (n-cells n-species)) - current tick
   diffusivities   ; (array double-float (n-cells n-species)) - D of each species in
                   ; each cell; faces use the harmonic mean (flux-stencil.lisp)
+  capacities      ; (array double-float (n-cells n-species)) - storage capacity kappa:
+                  ; the state is an amount per cell volume m, and diffusion moves
+                  ; it down gradients of m / kappa (e.g. kappa = water content,
+                  ; m / kappa = pore-water concentration). 1 by default.
   dt
   (diffusion-scheme :explicit) ; :EXPLICIT, :IMPLICIT or :IMEX - see STEP-MECHANISTIC!
   (tick 0 :type fixnum))
+
+(defun species-field-array (cell-index species field default valid-p what)
+  "Return a fresh (array double-float (n-cells n-species)) in CELL-INDEX
+order holding, for each species, (FUNCALL DEFAULT species) in every cell -
+except for species named in FIELD, an alist (species-name . function of a
+cell-id returning that cell's value). Signals an error, naming WHAT, on a
+value failing VALID-P or an unknown species name."
+  (let* ((n-cells (cell-index-count cell-index))
+         (array (make-array (list n-cells (length species)) :element-type 'double-float)))
+    (dolist (entry field)
+      (unless (find (car entry) species :key #'species-name)
+        (error "~a: unknown species ~s" what (car entry))))
+    (loop for sp in species
+          for s from 0
+          for fn = (cdr (assoc (species-name sp) field))
+          do (dotimes (i n-cells)
+               (let ((value (float (if fn
+                                       (funcall fn (index->cell-id cell-index i))
+                                       (funcall default sp))
+                                   1.0d0)))
+                 (unless (funcall valid-p value)
+                   (error "~a: invalid value ~a for ~s in cell ~s"
+                          what value (species-name sp) (index->cell-id cell-index i)))
+                 (setf (aref array i s) value))))
+    array))
 
 (defun diffusivity-array (cell-index species diffusivity-field)
   "Return a fresh (array double-float (n-cells n-species)) of diffusivities
@@ -34,28 +63,21 @@ in CELL-INDEX order: each species' SPECIES-DIFFUSIVITY in every cell, except
 for species named in DIFFUSIVITY-FIELD, an alist (species-name . function of
 a cell-id returning that cell's diffusivity). Signals an error on a negative
 value or an unknown species name."
-  (let* ((n-cells (cell-index-count cell-index))
-         (array (make-array (list n-cells (length species)) :element-type 'double-float)))
-    (dolist (entry diffusivity-field)
-      (unless (find (car entry) species :key #'species-name)
-        (error "DIFFUSIVITY-ARRAY: unknown species ~s" (car entry))))
-    (loop for sp in species
-          for s from 0
-          for field = (cdr (assoc (species-name sp) diffusivity-field))
-          do (dotimes (i n-cells)
-               (let ((d (float (if field
-                                   (funcall field (index->cell-id cell-index i))
-                                   (species-diffusivity sp))
-                               1.0d0)))
-                 (when (minusp d)
-                   (error "DIFFUSIVITY-ARRAY: negative diffusivity ~a for ~s in cell ~s"
-                          d (species-name sp) (index->cell-id cell-index i)))
-                 (setf (aref array i s) d))))
-    array))
+  (species-field-array cell-index species diffusivity-field #'species-diffusivity
+                       (lambda (d) (not (minusp d))) "DIFFUSIVITY-ARRAY"))
+
+(defun capacity-array (cell-index species capacity-field)
+  "Return a fresh (array double-float (n-cells n-species)) of storage
+capacities in CELL-INDEX order: 1 for every species in every cell, except
+for species named in CAPACITY-FIELD, an alist (species-name . function of a
+cell-id). Signals an error on a value that is not positive or an unknown
+species name."
+  (species-field-array cell-index species capacity-field (constantly 1d0) #'plusp
+                       "CAPACITY-ARRAY"))
 
 (defun make-mechanistic-world (tessellation &key species reactions dt initial-state
                                                   (diffusion-scheme :explicit)
-                                                  diffusivity-field)
+                                                  diffusivity-field capacity-field)
   "Build a fresh MECHANISTIC-WORLD over TESSELLATION. SPECIES/REACTIONS
 define the reaction network (see reaction-network.lisp; examples/ holds a
 complete network built this way). DT is
@@ -70,7 +92,9 @@ Strang-split with RK4 reactions, or :IMEX (IMEX Euler, not split: exact
 steady states, explicit Euler reactions - see STEP-MECHANISTIC!).
 DIFFUSIVITY-FIELD gives species a per-cell diffusivity (see
 DIFFUSIVITY-ARRAY); other species use their SPECIES-DIFFUSIVITY everywhere.
-SET-SPECIES-DIFFUSIVITY! changes it during a run."
+SET-SPECIES-DIFFUSIVITY! changes it during a run. CAPACITY-FIELD likewise
+gives species a per-cell storage capacity (CAPACITY-ARRAY, default 1;
+SET-SPECIES-CAPACITY!)."
   (unless (member diffusion-scheme '(:explicit :implicit :imex))
     (error "MAKE-MECHANISTIC-WORLD: unknown diffusion scheme ~s" diffusion-scheme))
   (let* ((cell-index (make-cell-index tessellation))
@@ -91,33 +115,50 @@ SET-SPECIES-DIFFUSIVITY! changes it during a run."
      :species-list species :species-index species-index :reactions reactions
      :n-species n-species :state state :dt (float dt 1.0d0) :tick 0
      :diffusivities (diffusivity-array cell-index species diffusivity-field)
+     :capacities (capacity-array cell-index species capacity-field)
      :diffusion-scheme diffusion-scheme)))
+
+(defun set-species-column! (world array species-name field valid-p what)
+  "Set column SPECIES-NAME of ARRAY, a per-cell per-species array of WORLD,
+to (FUNCALL FIELD cell-id) in every cell. Signals an error, naming WHAT, on
+an unknown species or a value failing VALID-P. Returns WORLD."
+  (let ((index (mechanistic-world-cell-index world))
+        (s (or (gethash species-name (mechanistic-world-species-index world))
+               (error "~a: unknown species ~s" what species-name))))
+    (dotimes (i (cell-index-count index) world)
+      (let ((value (float (funcall field (index->cell-id index i)) 1.0d0)))
+        (unless (funcall valid-p value)
+          (error "~a: invalid value ~a in cell ~s" what value (index->cell-id index i)))
+        (setf (aref array i s) value)))))
 
 (defun set-species-diffusivity! (world species-name field)
   "Set the diffusivity of SPECIES-NAME in every cell of WORLD to (FUNCALL
 FIELD cell-id), e.g. when water content changes (PLAN.md, Phase 3). Changes
 only WORLD's diffusivity array. Signals an error on a negative value.
 Returns WORLD."
-  (let* ((index (mechanistic-world-cell-index world))
-         (s (or (gethash species-name (mechanistic-world-species-index world))
-                (error "SET-SPECIES-DIFFUSIVITY!: unknown species ~s" species-name)))
-         (array (mechanistic-world-diffusivities world)))
-    (dotimes (i (cell-index-count index) world)
-      (let ((d (float (funcall field (index->cell-id index i)) 1.0d0)))
-        (when (minusp d)
-          (error "SET-SPECIES-DIFFUSIVITY!: negative diffusivity ~a in cell ~s"
-                 d (index->cell-id index i)))
-        (setf (aref array i s) d)))))
+  (set-species-column! world (mechanistic-world-diffusivities world) species-name field
+                       (lambda (d) (not (minusp d))) "SET-SPECIES-DIFFUSIVITY!"))
+
+(defun set-species-capacity! (world species-name field)
+  "Set the storage capacity of SPECIES-NAME in every cell of WORLD to
+\(FUNCALL FIELD cell-id), e.g. the water content (PLAN.md, Phase 3). The
+amounts held are unchanged, so a smaller capacity raises m / kappa: solute
+stays behind as water leaves. Signals an error on a value that is not
+positive. Returns WORLD."
+  (set-species-column! world (mechanistic-world-capacities world) species-name field
+                       #'plusp "SET-SPECIES-CAPACITY!"))
 
 (defun world-stable-timestep (world &key (safety-factor 0.9d0))
   "Return the explicit-diffusion stability bound for WORLD's own per-cell
-diffusivities: the smallest STENCIL-STABLE-TIMESTEP over its species.
-Infinity if nothing diffuses."
+diffusivities and capacities: the smallest STENCIL-STABLE-TIMESTEP over its
+species. Infinity if nothing diffuses."
   (let ((stencil (mechanistic-world-stencil world))
-        (diffusivities (mechanistic-world-diffusivities world)))
+        (diffusivities (mechanistic-world-diffusivities world))
+        (capacities (mechanistic-world-capacities world)))
     (reduce #'min (loop for s below (mechanistic-world-n-species world)
                         collect (stencil-stable-timestep stencil (state-column diffusivities s)
-                                                         :safety-factor safety-factor))
+                                                         :safety-factor safety-factor
+                                                         :capacity (state-column capacities s)))
             :initial-value sb-ext:double-float-positive-infinity)))
 
 (defun field-initial-state (tessellation fields)

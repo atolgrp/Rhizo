@@ -115,9 +115,10 @@ DT below 1 / (the fastest reaction rate)."
 (defun diffusion-substep! (world dt)
   "Advance every mobile species by DT of explicit finite-volume diffusion:
 flux from neighbor J into cell I is D_face * FACE-CONDUCTANCE(I,J) *
-\(C_J - C_I), D_face the harmonic mean of the two cells' diffusivities,
-summed over neighbors (STENCIL-NET-FLUX on the world's precomputed
-FLUX-STENCIL) and divided by cell I's own area. Species with zero
+\(x_J - x_I), x = m / kappa the amount over the storage capacity (the
+world's CAPACITIES) and D_face the harmonic mean of the two cells'
+diffusivities, summed over neighbors (STENCIL-NET-FLUX on the world's
+precomputed FLUX-STENCIL) and divided by cell I's own area. Species with zero
 diffusivity in every cell pass through unchanged. DT must respect
 WORLD-STABLE-TIMESTEP. Reads only the
 tick's starting state (double-buffered via a fresh array, then swapped in)
@@ -129,6 +130,7 @@ a synchronous CA-style update."
          (n-cells (length areas))
          (n-species (mechanistic-world-n-species world))
          (diffusivities (mechanistic-world-diffusivities world))
+         (capacities (mechanistic-world-capacities world))
          (old-state (mechanistic-world-state world))
          (new-state (make-array (list n-cells n-species) :element-type 'double-float)))
     (dotimes (i n-cells)
@@ -136,7 +138,7 @@ a synchronous CA-style update."
     (dotimes (s n-species)
       (let ((diffusivity (state-column diffusivities s)))
         (when (some #'plusp diffusivity)
-          (let ((column (state-column old-state s)))
+          (let ((column (intensity-column (state-column old-state s) (state-column capacities s))))
             (pmap-cell-range!
              n-cells
              (lambda (i)
