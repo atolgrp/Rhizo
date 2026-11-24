@@ -122,3 +122,23 @@
           (is (minusp (steady rows :receiver-threshold)))
           (is (plusp (steady rows :producer-density)))
           (is (plusp (transient rows :producer-density))))))))
+
+;;; Direct tests of the helpers
+
+(test bessel-k-orders-agree-with-their-wrappers
+  (is (= (bessel-k 0 1.5d0) (bessel-k0 1.5d0)))
+  (is (= (bessel-k 1 1.5d0) (bessel-k1 1.5d0))))
+
+(test crossing-distance-solves-a-decreasing-profile
+  ;; 1 / r crosses 0.25 at r = 4
+  (is (< (abs (- 4d0 (crossing-distance (lambda (r) (/ 1d0 r)) 0.25d0 1d0))) 1d-9)))
+
+(test radial-profile-bins-by-distance
+  ;; cells at (0,0) and (4,0), area 2, values 10 and 20: bins of width 3
+  (let ((profile (radial-profile (two-cell-world '(10d0 20d0) :area 2d0) :c '(0d0 . 0d0) 3d0)))
+    (is (equal '((1.5d0 . 10d0) (4.5d0 . 20d0)) profile))))
+
+(test scenario-values-fall-back-to-the-defaults
+  (is (= 1000d0 (scenario-value nil :patch-area)))
+  (is (= 7d0 (scenario-value '(:patch-area 7d0) :patch-area)))
+  (is (getf (default-calling-scenario) :induced)))

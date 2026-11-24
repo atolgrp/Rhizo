@@ -201,3 +201,28 @@ Millington-Quirk at theta 0.3, no sorption, no induction."
     (is (equal '(2d0 4d0 6d0 8d0 10d0 12d0) (mapcar (lambda (s) (getf s :time)) samples)))
     (is (every (lambda (s) (= (getf s :theta) (funcall theta (getf s :time)))) samples))
     (is (every (lambda (s) (<= 0 (getf s :largest-weak-fraction) 1)) samples))))
+
+(test group-components-orders-members-and-groups
+  (is (equal '((0 2) (1 3)) (group-components 4 (lambda (i) (mod i 2))))))
+
+(test branch-value-interpolates-and-clamps
+  (let ((points '((0.1d0 . 1d0) (0.3d0 . 3d0))))
+    (is (< (abs (- 2d0 (branch-value points 0.2d0))) 1d-12))
+    (is (= 1d0 (branch-value points 0.05d0)))
+    (is (= 3d0 (branch-value points 0.5d0)))))
+
+(test range-at-water-is-one-row-of-range-versus-water
+  (let ((p (ahl-literature-parameters)) (scenario '(:degrader-density 1d9)))
+    (is (= (range-at-water p 0.3d0 scenario :steady)
+           (getf (first (range-versus-water p '(0.3d0) :scenario scenario)) :steady)))))
+
+(test tag-and-node-names
+  (is (eq :tag-3 (tag-name 3)))
+  (is (eq :node-12 (node-name 12)))
+  (is (= (+ 3 3 3 4) (length (tagged-species 3 (ahl-literature-parameters))))))
+
+(test total-tag-concentration-is-the-pore-water-sum
+  (let* ((species (tagged-species 2 (ahl-literature-parameters)))
+         (index (make-species-index species))
+         (state (make-cell-state index '((:tag-0 . 3d0) (:tag-1 . 1.5d0) (:water . 0.5d0)))))
+    (is (= 9d0 (total-tag-concentration state index '(:tag-0 :tag-1))))))

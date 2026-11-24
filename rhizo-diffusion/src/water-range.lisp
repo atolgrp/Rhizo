@@ -73,7 +73,9 @@ with PARAMETERS (water content :WATER-CONTENT, relation
 RELATIVE-DIFFUSIVITY, scheme :IMEX), run to steady state - or for TIME
 seconds when TIME is given - and measured where the pore-water AHL falls to
 THRESHOLD (CALLING-DISTANCE). The step is DT-FACTOR / (hydrolysis rate +
-SORPTION-RELAXATION-RATE), shortened to divide TIME evenly."
+SORPTION-RELAXATION-RATE), shortened to divide TIME evenly. Second value:
+the drift of SIGNAL-POOL-BALANCE over the AHL produced - mass balance,
+pass/fail for every transport run."
   (let* ((source (nearest-cell tessellation centre))
          (dt (/ dt-factor (+ (parameter-value parameters :hydrolysis-rate)
                              (sorption-relaxation-rate parameters))))
@@ -84,7 +86,10 @@ SORPTION-RELAXATION-RATE), shortened to divide TIME evenly."
                                              :initial-state (lambda (id)
                                                               (when (equal id source)
                                                                 `((:producer . ,density)))))))
-    (if time
-        (run-mechanistic! world steps)
-        (step-to-steady-state! world :ahl))
-    (calling-distance world (pore-water :ahl) (cell-position tessellation source) threshold)))
+    (let ((balance-0 (signal-pool-balance world :ahl)))
+      (if time
+          (run-mechanistic! world steps)
+          (step-to-steady-state! world :ahl))
+      (values (calling-distance world (pore-water :ahl) (cell-position tessellation source) threshold)
+              (/ (abs (- (signal-pool-balance world :ahl) balance-0))
+                 (species-mass world :ahl-produced))))))

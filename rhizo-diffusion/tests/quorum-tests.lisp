@@ -91,3 +91,10 @@
          (on (getf (quorum-switch-density p) :on)))
     (is (null (uniform-induction-p p (* 0.97d0 on))))
     (is (uniform-induction-p p (* 1.03d0 on)))))
+
+(test well-mixed-ahl-reads-the-pore-water-concentration
+  (let ((world (well-mixed-ahl-world (ahl-literature-parameters) 1d9 0d0 1d0)))
+    (setf (aref (mechanistic-world-state world) 0
+                (gethash :ahl (mechanistic-world-species-index world)))
+          6d0)
+    (is (< (abs (- 20d0 (well-mixed-ahl world))) 1d-12) "6 per soil volume over theta 0.3")))

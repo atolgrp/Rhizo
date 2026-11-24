@@ -79,9 +79,12 @@
     (dolist (theta '(0.3d0 0.45d0))
       (let ((analytic (steady-calling-distance s-rate (* 490d0 (funcall xi theta)) (* theta k)
                                                threshold))
-            (simulated (single-producer-calling-distance
-                        tess (with-parameter-values parameters `((:water-content . ,theta)))
-                        :centre '(200d0 . 200d0) :density density :threshold threshold
-                        :relative-diffusivity relation)))
+            (simulated nil) (mass-balance nil))
+        (setf (values simulated mass-balance)
+              (single-producer-calling-distance
+               tess (with-parameter-values parameters `((:water-content . ,theta)))
+               :centre '(200d0 . 200d0) :density density :threshold threshold
+               :relative-diffusivity relation))
         (is (< (abs (- simulated analytic)) (* 0.05d0 analytic))
-            "theta ~a: simulated ~a um, analytic ~a um" theta simulated analytic)))))
+            "theta ~a: simulated ~a um, analytic ~a um" theta simulated analytic)
+        (is (< mass-balance 1d-10) "mass balance is pass/fail: drift ~a" mass-balance)))))

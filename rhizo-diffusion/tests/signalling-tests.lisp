@@ -215,3 +215,13 @@ beyond \"a\" (face length 3), not touching the root."
     (is (= 0.25d0 (funcall (water-content-field 0.25d0 parameters) "any")))
     (is (= 0.1d0 (funcall (water-content-field (lambda (id) (declare (ignore id)) 0.1d0) parameters)
                           "any")))))
+
+(test signal-species-and-reaction-builders
+  (is (equal '(:x :x-sorbed :x-produced :x-lost) (mapcar #'species-name (signal-species :x 2d0))))
+  (is (= 2d0 (species-diffusivity (first (signal-species :x 2d0)))))
+  (is (equal '((:x . 1d0) (:x-produced . 1d0))
+             (reaction-stoichiometry (production-reaction :x (mass-action-rate 1d0)))))
+  (is (equal '((:x . -1d0) (:x-lost . 1d0))
+             (reaction-stoichiometry (loss-reaction :x :x-decay (mass-action-rate 1d0)))))
+  (is (equal '(:exudate :exudate-sorbed :exudate-produced :exudate-lost :root-source :water)
+             (mapcar #'species-name (exudate-species (exudate-literature-parameters))))))
