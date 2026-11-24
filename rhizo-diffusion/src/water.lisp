@@ -20,7 +20,7 @@
 ;;; clay loam and a clay. Millington-Quirk with its standard constants
 ;;; overestimated all three and had the highest error; a quadratic in theta
 ;;; (Mullins & Sommer 1986) had the largest Akaike weight for the sand and
-;;; the sandy clay loam. (PLAN.md cites this study as "Chou, Hu & Dane".)
+;;; the sandy clay loam.
 
 (defun millington-quirk (porosity)
   "Return the Millington-Quirk relative diffusivity xi(theta) =
