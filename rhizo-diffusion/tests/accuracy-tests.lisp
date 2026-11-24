@@ -163,3 +163,10 @@
         (is (< (abs (- 1 (/ (getf run :r-measured) 5d0))) 0.005d0)
             "~a: R = ~,4f, expected 5" (first spec) (getf run :r-measured))
         (is (< (getf run :mass-error) 1d-12) "~a: mass error ~a" (first spec) (getf run :mass-error))))))
+
+(test species-cells-reads-a-pore-water-reference
+  (let ((world (make-mechanistic-world
+                (two-cell-tessellation 2d0 1d0 4d0)
+                :species (list (make-species :name :c) (water-species)) :reactions '() :dt 1d0
+                :initial-state '((:c . 3d0) (:water . 0.5d0)))))
+    (is (equal '(6d0 6d0) (mapcar #'third (species-cells world '(:per :c :water)))))))

@@ -54,6 +54,7 @@ decay rate, and no induction (a constant source)."
   (let ((run (single-producer-steady-state
               (voronoi-grid-tessellation (make-nearest-seed-grid 400 400 1600 :seed 1))
               :centre '(200d0 . 200d0) :parameters (k0-gate-parameters 30d0 :k-prime 1d0)
+              :relative-diffusivity :no-tortuosity
               :r-min 30d0 :r-max 90d0)))
     (is (< (getf run :l2) 0.05d0) "relative L2 error against K0: ~a" (getf run :l2))
     (is (< (getf run :residual) 1d-8) "not at steady state: last-step change ~a" (getf run :residual))

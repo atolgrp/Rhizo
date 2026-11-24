@@ -84,22 +84,27 @@ true after a step, or until MAX-STEPS steps have been taken. Returns
 
 (defun single-producer-steady-state (tessellation &key centre parameters (density 5d14)
                                                     r-min r-max (dt-factor 0.5d0)
-                                                    (tolerance 1d-10))
+                                                    (tolerance 1d-10)
+                                                    (relative-diffusivity :millington-quirk))
   "Measure the steady AHL profile around a single producer (PLAN.md, Phase
-2 gate). DENSITY producers per litre (default 5e14: cells of 1 um^3 filling
-half the volume, as in Hense et al. 2012) occupy the cell of TESSELLATION
-nearest CENTRE; no degraders. The AHL world with PARAMETERS (scheme :IMEX)
-is stepped to steady state (STEP-TO-STEADY-STATE! with TOLERANCE) with dt =
-DT-FACTOR / (hydrolysis rate + SORPTION-RELAXATION-RATE) - below 1 keeps the
-explicit reactions positive, and :IMEX's steady state does not depend on dt
-\(measured: the same error to 4 digits at 0.1 and 0.5) - and compared with
-POINT-SOURCE-STEADY-STATE at every cell whose position is R-MIN to R-MAX
-from the producer's. The source rate is the producer cell's area times its
-production rate at the final concentration, so induction is allowed;
-hydrolysis must be the only loss, as K0 assumes. Returns a plist:
+2 gate). DENSITY producers per litre of soil (default 5e14: cells of 1 um^3
+filling half the volume, as in Hense et al. 2012) occupy the cell of
+TESSELLATION nearest CENTRE; no degraders; water content uniform at
+PARAMETERS' :WATER-CONTENT with the relation RELATIVE-DIFFUSIVITY. The AHL
+world (scheme :IMEX) is stepped to steady state (STEP-TO-STEADY-STATE! with
+TOLERANCE) with dt = DT-FACTOR / (hydrolysis rate +
+SORPTION-RELAXATION-RATE) - below 1 keeps the explicit reactions positive,
+and :IMEX's steady state does not depend on dt (measured: the same error to
+4 digits at 0.1 and 0.5) - and compared with POINT-SOURCE-STEADY-STATE at
+every cell whose position is R-MIN to R-MAX from the producer's, in the
+bulk form: S the source per soil volume times area, D_s = D_0 xi(theta),
+k = theta times the hydrolysis rate. The source rate is the producer cell's
+area times its production rate at the final pore-water concentration, so
+induction is allowed; hydrolysis must be the only loss, as K0 assumes.
+Returns a plist:
   :L2           relative L2 error against K0 on the annulus
   :N-COMPARED   cells on the annulus
-  :DECAY-LENGTH sqrt(D / k)
+  :DECAY-LENGTH sqrt(D_s / k)
   :SOURCE-RATE  S, amount per unit depth per second
   :RESIDUAL     relative change of AHL in the last step
   :MASS-BALANCE drift of SIGNAL-POOL-BALANCE over produced AHL
@@ -107,26 +112,31 @@ hydrolysis must be the only loss, as K0 assumes. Returns a plist:
   (flet ((p (name) (parameter-value parameters name)))
     (let* ((source (nearest-cell tessellation centre))
            (origin (cell-position tessellation source))
-           (d (p :diffusivity))
-           (k (p :hydrolysis-rate))
+           (theta (p :water-content))
+           (d (* (p :diffusivity)
+                 (funcall (relative-diffusivity-model relative-diffusivity parameters) theta)))
+           (k (* theta (p :hydrolysis-rate)))
            (world (make-ahl-world tessellation
                                   :parameters parameters
-                                  :dt (/ dt-factor (+ k (sorption-relaxation-rate parameters)))
+                                  :relative-diffusivity relative-diffusivity
+                                  :dt (/ dt-factor (+ (p :hydrolysis-rate)
+                                                      (sorption-relaxation-rate parameters)))
                                   :initial-state (lambda (id)
                                                    (when (equal id source)
                                                      `((:producer . ,density))))))
            (balance-0 (signal-pool-balance world :ahl)))
       (multiple-value-bind (steps residual) (step-to-steady-state! world :ahl :tolerance tolerance)
-        (let* ((c-source (aref (mechanistic-world-state world)
-                               (cell-id->index (mechanistic-world-cell-index world) source)
-                               (gethash :ahl (mechanistic-world-species-index world))))
+        (let* ((c-source (/ (aref (mechanistic-world-state world)
+                                  (cell-id->index (mechanistic-world-cell-index world) source)
+                                  (gethash :ahl (mechanistic-world-species-index world)))
+                            theta))
                (source-rate (* (cell-area tessellation source) density
                                (+ (p :basal-production)
                                   (* (p :induced-production)
                                      (hill-activation c-source (p :induction-threshold)
                                                       (p :hill-coefficient))))))
                (on-annulus (lambda (point) (<= r-min (point-distance point origin) r-max))))
-          (list :l2 (relative-l2-error world :ahl
+          (list :l2 (relative-l2-error world '(:per :ahl :water)
                                        (lambda (point)
                                          (point-source-steady-state source-rate d k
                                                                     (point-distance point origin)))
@@ -142,12 +152,13 @@ hydrolysis must be the only loss, as K0 assumes. Returns a plist:
 
 ;;; Quorum induction of a uniform population (PLAN.md, Phase 2 gate).
 ;;;
-;;; Producers at a uniform density rho have no gradients, so the whole
-;;; domain behaves as one well-mixed cell: dC/dt = f(C), with
+;;; Producers at a uniform density rho (per soil volume) have no gradients,
+;;; so the whole domain behaves as one well-mixed cell: theta dC/dt = f(C),
+;;; C the pore-water concentration, with
 ;;;
-;;;     f(C) = rho (alpha + beta H(C)) - k C - kcat rho_d C / (Km + C),
+;;;     f(C) = rho (alpha + beta H(C)) - k theta C - kcat rho_d C / (Km + C),
 ;;;
-;;; H the Hill activation. Steady states are the roots of f. Sorption that
+;;; H the Hill activation, k the hydrolysis rate of the dissolved amount. Steady states are the roots of f. Sorption that
 ;;; only exchanges with the dissolved pool slows the approach (by up to
 ;;; 1 + K') but does not move them. Solving f = 0 for the density gives
 ;;; rho(C) = loss(C) / (alpha + beta H(C)), the density at which C is a
@@ -160,15 +171,16 @@ hydrolysis must be the only loss, as K0 assumes. Returns a plist:
 ;;; steady AHL concentration equals the induction threshold.
 
 (defun uniform-ahl-balance (parameters producer-density c &key (degrader-density 0d0))
-  "Return f(C), the net rate (nM/s) of AHL production minus hydrolysis and
-biodegradation at concentration C in a well-mixed population of
-PRODUCER-DENSITY producers and DEGRADER-DENSITY degraders (cells/L), with
-PARAMETERS. See the comment above."
+  "Return f(C), the net rate (nmol per litre of soil per s) of AHL
+production minus hydrolysis and biodegradation at pore-water concentration
+C in a well-mixed population of PRODUCER-DENSITY producers and
+DEGRADER-DENSITY degraders (cells per litre of soil), with PARAMETERS
+\(water content :WATER-CONTENT). See the comment above."
   (flet ((p (name) (parameter-value parameters name)))
     (- (* producer-density (+ (p :basal-production)
                               (* (p :induced-production)
                                  (hill-activation c (p :induction-threshold) (p :hill-coefficient)))))
-       (* (p :hydrolysis-rate) c)
+       (* (p :hydrolysis-rate) (p :water-content) c)
        (/ (* (p :biodegradation-kcat) degrader-density c) (+ (p :biodegradation-km) c)))))
 
 (defun bisect-root (f lo hi &key (iterations 100))
@@ -186,15 +198,16 @@ ITERATIONS bisections (to double precision for the default)."
 (defun uniform-steady-states (parameters producer-density &key (degrader-density 0d0)
                                                             (grid-points 4000))
   "Return the steady AHL concentrations, in increasing order, of a
-well-mixed population (UNIFORM-AHL-BALANCE = 0) with PARAMETERS: one when
-the response is monostable, three in the bistable range (low, unstable,
-induced). Roots are bracketed on GRID-POINTS log-spaced concentrations up to
-the bound rho (alpha + beta) / k, then bisected; two roots closer than one
+well-mixed population (UNIFORM-AHL-BALANCE = 0) with PARAMETERS, as
+pore-water concentrations: one when the response is monostable, three in
+the bistable range (low, unstable, induced). Roots are bracketed on
+GRID-POINTS log-spaced concentrations up to the bound rho (alpha + beta) /
+\(k theta), then bisected; two roots closer than one
 grid step (0.7% at the default) are missed. Requires a hydrolysis rate > 0."
   (let* ((k (parameter-value parameters :hydrolysis-rate))
          (c-max (/ (* producer-density (+ (parameter-value parameters :basal-production)
                                           (parameter-value parameters :induced-production)))
-                   k))
+                   (* k (parameter-value parameters :water-content))))
          (f (lambda (c) (uniform-ahl-balance parameters producer-density c
                                              :degrader-density degrader-density)))
          (grid (cons 0d0 (loop for i from 0 to grid-points
@@ -275,20 +288,24 @@ explicit Euler step."
      :parameters parameters
      :diffusion-scheme :implicit
      :dt (/ dt-factor (+ (p :hydrolysis-rate)
-                         (/ (* (p :biodegradation-kcat) degrader-density) (p :biodegradation-km))
+                         (/ (* (p :biodegradation-kcat) degrader-density)
+                            (* (p :biodegradation-km) (p :water-content)))
                          (sorption-relaxation-rate parameters)))
      :initial-state `((:producer . ,producer-density) (:degrader . ,degrader-density)))))
 
 (defun well-mixed-ahl (world)
-  "Return the AHL concentration of a world over WELL-MIXED-TESSELLATION."
-  (aref (mechanistic-world-state world) 0 (gethash :ahl (mechanistic-world-species-index world))))
+  "Return the pore-water AHL concentration of a world over
+WELL-MIXED-TESSELLATION."
+  (let ((index (mechanistic-world-species-index world))
+        (state (mechanistic-world-state world)))
+    (/ (aref state 0 (gethash :ahl index)) (aref state 0 (gethash :water index)))))
 
 (defun uniform-steady-ahl (parameters producer-density &key (degrader-density 0d0)
                                                          (dt-factor 2d0) (tolerance 1d-12)
                                                          (max-steps 100000))
   "Return the steady AHL concentration a well-mixed population of
-PRODUCER-DENSITY producers and DEGRADER-DENSITY degraders per litre reaches
-from no AHL, simulated (WELL-MIXED-AHL-WORLD with DT-FACTOR) until AHL
+PRODUCER-DENSITY producers and DEGRADER-DENSITY degraders per litre of soil
+reaches, as a pore-water concentration, from no AHL, simulated (WELL-MIXED-AHL-WORLD with DT-FACTOR) until AHL
 changes by less than TOLERANCE in a step. Second value: the steps taken.
 Signals an error if MAX-STEPS pass first."
   (let ((world (well-mixed-ahl-world parameters producer-density degrader-density dt-factor)))

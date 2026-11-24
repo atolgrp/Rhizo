@@ -69,21 +69,24 @@
 
 (test measured-calling-distance-matches-the-analytic-one
   ;; A single producer cell on 1,600 cells (spacing 10 um), decay length
-  ;; 30 um, no sorption; the threshold is the analytic concentration at
-  ;; 60 um, so the calling distance should come out at 60 um.
+  ;; 30 um, no sorption, free-water diffusion; the threshold is the analytic
+  ;; pore-water concentration at 60 um, so the calling distance should come
+  ;; out at 60 um. Bulk form: S per soil volume, D_s = theta D_0, k theta.
   (let* ((parameters (k0-gate-parameters 30d0 :k-prime 0d0))
+         (theta (parameter-value parameters :water-content))
          (tess (voronoi-grid-tessellation (make-nearest-seed-grid 400 400 1600 :seed 1)))
          (density 5d14)
          (source (nearest-cell tess '(200d0 . 200d0)))
          (s-rate (* (cell-area tess source) density (parameter-value parameters :basal-production)))
          (k (parameter-value parameters :hydrolysis-rate))
-         (threshold (point-source-steady-state s-rate 490d0 k 60d0))
+         (threshold (point-source-steady-state s-rate (* theta 490d0) (* theta k) 60d0))
          (world (make-ahl-world tess :parameters parameters :dt (/ 0.5d0 k)
+                                     :relative-diffusivity :no-tortuosity
                                      :initial-state (lambda (id)
                                                       (when (equal id source)
                                                         `((:producer . ,density)))))))
     (step-to-steady-state! world :ahl)
-    (let ((r (calling-distance world :ahl (cell-position tess source) threshold)))
+    (let ((r (calling-distance world '(:per :ahl :water) (cell-position tess source) threshold)))
       (is (< (abs (- r 60d0)) 3d0) "measured calling distance ~a um, analytic 60 um" r))))
 
 (test default-calling-scenario-reaches-beyond-the-patch

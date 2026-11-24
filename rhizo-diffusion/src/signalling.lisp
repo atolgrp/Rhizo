@@ -19,19 +19,23 @@
 ;;; (lactonase activity of degrader biomass, Michaelis-Menten), and
 ;;; partitions at a finite rate onto the soil (linear sorption, K_d).
 ;;;
-;;; Units. Length um, time s, concentration nM (nmol per litre of pore
-;;; water), cell density cells per litre of pore water. Concentrations and
-;;; densities are per volume of water, so receivers compare the state
-;;; directly with their threshold; sorbed AHL is likewise expressed per
-;;; volume of water, with equilibrium sorbed / dissolved = K' = rho_b K_d /
-;;; theta (dimensionless; rho_b bulk density, theta volumetric water
-;;; content).
+;;; Units. Length um, time s. Every pool is an amount per litre of SOIL
+;;; (nmol/L for signal, cells/L for biomass), so drying changes no pool
+;;; (PLAN.md, Phase 3). Chemistry responds to the pore-water concentration
+;;; c = m / theta in nM (nmol per litre of water), read in the rate laws as
+;;; (:PER :AHL :WATER); theta is the immobile species :WATER, set by
+;;; SET-WATER-CONTENT! (water.lisp), which also makes theta the storage
+;;; capacity of dissolved signal and D_0 xi(theta) its diffusivity. Sorbed
+;;; signal per soil volume equilibrates with the pore water at rho_b K_d c,
+;;; i.e. sorbed / dissolved = K' = rho_b K_d / theta (PARTITION-COEFFICIENT;
+;;; rho_b bulk density).
 ;;;
 ;;; Assumed, not measured:
 ;;; - The 2D grid is a slab uniform in depth, so a producer patch is a
 ;;;   column of producers and the steady profile around it is K0, not 1/r.
-;;; - Water content is uniform and constant (Phase 3 makes it a field), and
-;;;   the diffusivity is that in free water (soil tortuosity is Phase 3).
+;;; - Water content is prescribed (no flow); the relative diffusivity
+;;;   xi(theta) is a chosen relation (water.lisp), Millington-Quirk unless
+;;;   another is given; Phase 2's free-water assumption is :NO-TORTUOSITY.
 ;;; - Only dissolved AHL is hydrolysed or biodegraded; sorbed AHL is
 ;;;   protected. With this, sorption does not change the steady state, only
 ;;;   how fast it is reached.
@@ -104,6 +108,12 @@ is 1 + K'."
   (/ (* (parameter-value parameters :bulk-density) (parameter-value parameters :kd))
      (parameter-value parameters :water-content)))
 
+(defun sorption-coefficient (parameters)
+  "Return rho_b K_d (dimensionless: kg/L times L/kg) from PARAMETERS: the
+sorbed amount per soil volume in equilibrium with a unit pore-water
+concentration."
+  (* (parameter-value parameters :bulk-density) (parameter-value parameters :kd)))
+
 (defun sorption-relaxation-rate (parameters)
   "Return the rate k_des (1 + K') at which dissolved and sorbed signal relax
 to equilibrium, from PARAMETERS. RK4 is stable for a reaction half-step
@@ -136,26 +146,32 @@ its LOST pool."
                  :stoichiometry `((,signal . -1d0) (,(signal-pool signal :lost) . 1d0))
                  :rate-fn rate-fn))
 
+(defun pore-water (signal)
+  "Return the rate-law reference to SIGNAL's pore-water concentration,
+\(:PER signal :WATER)."
+  (list :per signal :water))
+
 (defun signal-fate-reactions (signal decay-rate parameters)
   "Return the decay and sorption reactions of SIGNAL: first-order decay of
-the dissolved signal at DECAY-RATE (into its LOST pool), and linear sorption
-at PARAMETERS' :DESORPTION-RATE toward the PARTITION-COEFFICIENT of
-PARAMETERS."
+the dissolved amount at DECAY-RATE (into its LOST pool), and linear
+sorption at PARAMETERS' :DESORPTION-RATE toward SORPTION-COEFFICIENT times
+the pore-water concentration."
   (list (loss-reaction signal (signal-pool signal :decay) (first-order-decay-rate decay-rate signal))
         (make-reaction
          :name (signal-pool signal :sorption)
          :stoichiometry `((,signal . -1d0) (,(signal-pool signal :sorbed) . 1d0))
          :rate-fn (linear-reversible-rate (parameter-value parameters :desorption-rate)
-                                          signal (signal-pool signal :sorbed)
-                                          (partition-coefficient parameters)))))
+                                          (pore-water signal) (signal-pool signal :sorbed)
+                                          (sorption-coefficient parameters)))))
 
 (defun ahl-species (parameters)
-  "Return the species of the AHL set: the SIGNAL-SPECIES of :AHL (diffusing
-with PARAMETERS' :DIFFUSIVITY) and immobile producer, receiver and degrader
-biomass."
+  "Return the species of the AHL set: the SIGNAL-SPECIES of :AHL (free-water
+diffusivity PARAMETERS' :DIFFUSIVITY), immobile producer, receiver and
+degrader biomass, and the WATER-SPECIES."
   (append (signal-species :ahl (parameter-value parameters :diffusivity))
           (mapcar (lambda (name) (make-species :name name :diffusivity 0d0))
-                  '(:producer :receiver :degrader))))
+                  '(:producer :receiver :degrader))
+          (list (water-species))))
 
 (defun ahl-reactions (parameters)
   "Return the reactions of the AHL set with PARAMETERS: induced production
@@ -164,28 +180,43 @@ by producers, biodegradation by degraders, and the SIGNAL-FATE-REACTIONS
   (flet ((p (name) (parameter-value parameters name)))
     (list* (production-reaction :ahl (induced-production-rate
                                       (p :basal-production) (p :induced-production)
-                                      :producer :ahl
+                                      :producer (pore-water :ahl)
                                       (p :induction-threshold) (p :hill-coefficient)))
            (loss-reaction :ahl :ahl-biodegradation
-                          (michaelis-menten-rate (p :biodegradation-kcat) :degrader :ahl
+                          (michaelis-menten-rate (p :biodegradation-kcat) :degrader (pore-water :ahl)
                                                  (p :biodegradation-km)))
            (signal-fate-reactions :ahl (p :hydrolysis-rate) parameters))))
 
+(defun water-content-field (water-content parameters)
+  "Return a function of a cell id giving its water content: WATER-CONTENT
+itself if it is a function, a constant function if it is a number, and the
+constant PARAMETERS' :WATER-CONTENT if it is NIL."
+  (cond ((functionp water-content) water-content)
+        (water-content (constantly (float water-content 1d0)))
+        (t (constantly (parameter-value parameters :water-content)))))
+
 (defun make-ahl-world (tessellation &key (parameters (ahl-literature-parameters)) dt initial-state
-                                         (diffusion-scheme :imex) diffusivity-field)
+                                         (diffusion-scheme :imex) water-content
+                                         (relative-diffusivity :millington-quirk))
   "Return a fresh MECHANISTIC-WORLD of the AHL set over TESSELLATION with
-PARAMETERS (default AHL-LITERATURE-PARAMETERS). DT, INITIAL-STATE,
-DIFFUSION-SCHEME and DIFFUSIVITY-FIELD are as for MAKE-MECHANISTIC-WORLD;
-the scheme defaults to :IMEX, which keeps steady states exact and is stable
-for diffusion at any DT. Biomass is placed through INITIAL-STATE
-\(:PRODUCER, :RECEIVER, :DEGRADER in cells per litre). DT times the fastest
-reaction rate - often SORPTION-RELAXATION-RATE - must stay below 1 for
-:IMEX's explicit reactions (about 5.6 for the Strang schemes' RK4)."
-  (make-mechanistic-world tessellation :species (ahl-species parameters)
-                                       :reactions (ahl-reactions parameters)
-                                       :dt dt :initial-state initial-state
-                                       :diffusion-scheme diffusion-scheme
-                                       :diffusivity-field diffusivity-field))
+PARAMETERS (default AHL-LITERATURE-PARAMETERS), its water content set by
+SET-WATER-CONTENT! from WATER-CONTENT (a number, a function of a cell id,
+or NIL for the parameters' :WATER-CONTENT; see WATER-CONTENT-FIELD) and the
+relation named RELATIVE-DIFFUSIVITY (RELATIVE-DIFFUSIVITY-MODEL; default
+Millington-Quirk, the Phase 3 baseline). DT, INITIAL-STATE and
+DIFFUSION-SCHEME are as for MAKE-MECHANISTIC-WORLD; the scheme defaults to
+:IMEX, which keeps steady states exact and is stable for diffusion at any
+DT. Biomass is placed through INITIAL-STATE (:PRODUCER, :RECEIVER,
+:DEGRADER in cells per litre of soil). DT times the fastest reaction rate -
+often SORPTION-RELAXATION-RATE - must stay below 1 for :IMEX's explicit
+reactions (about 5.6 for the Strang schemes' RK4)."
+  (set-water-content!
+   (make-mechanistic-world tessellation :species (ahl-species parameters)
+                                        :reactions (ahl-reactions parameters)
+                                        :dt dt :initial-state initial-state
+                                        :diffusion-scheme diffusion-scheme)
+   (water-content-field water-content parameters)
+   (relative-diffusivity-model relative-diffusivity parameters)))
 
 (defun pool-balance (world plus minus)
   "Return the total amount (SPECIES-MASS) of the species named in PLUS
@@ -213,9 +244,9 @@ stored + lost - produced, which a conserving run keeps constant."
 ;;; straight line (faces zigzag), so the flux is per unit of this perimeter;
 ;;; divide a total rate by ROOT-PERIMETER to release exactly that total.
 ;;;
-;;; The flux is in nM um/s (amount per unit root surface per second, the
-;;; amount per litre of water), so flux * face length / cell area is a
-;;; concentration rate in nM/s.
+;;; The flux is in nmol/L um/s (amount per unit root surface per second,
+;;; the amount per litre of soil), so flux * face length / cell area is a
+;;; rate per soil volume in nmol/L/s.
 
 (defun root-perimeter (tessellation root-p)
   "Return the total length of the faces between cells satisfying the
@@ -227,8 +258,8 @@ predicate ROOT-P (root) and cells that do not (soil) in TESSELLATION."
                       sum (edge-length tessellation id nb))))
 
 (defun root-surface-source (tessellation root-p flux)
-  "Return a function of a cell id giving the exudation rate per unit volume
-\(nM/s) in that cell: FLUX times the length of its faces with root cells
+  "Return a function of a cell id giving the exudation rate per soil volume
+\(nmol/L/s) in that cell: FLUX times the length of its faces with root cells
 \(ROOT-P), divided by its CELL-AREA, for soil cells; zero for root cells."
   (lambda (id)
     (if (funcall root-p id)
@@ -237,12 +268,6 @@ predicate ROOT-P (root) and cells that do not (soil) in TESSELLATION."
                          when (funcall root-p nb)
                            sum (edge-length tessellation id nb)))
            (cell-area tessellation id)))))
-
-(defun root-diffusivity-field (root-p diffusivity)
-  "Return a function of a cell id giving DIFFUSIVITY in soil cells and zero
-in root cells (ROOT-P), for a DIFFUSIVITY-FIELD: it makes the root surface
-a no-flux wall."
-  (lambda (id) (if (funcall root-p id) 0d0 (float diffusivity 1d0))))
 
 (defun exudate-literature-parameters ()
   "Return a fresh list of the MODEL-PARAMETERs of the root exudate, a
@@ -263,7 +288,7 @@ g/mol), in the units of the file header. Flagged where no source was found
       :source "Rial et al. 2018, Phytochem Anal, doi:10.1002/pca.2796 (abstract): strigolactones are active below 1e-10 M"
       :note "Germination of parasitic-plant seeds; arbuscular mycorrhizal hyphae may respond lower.")
      (make-model-parameter
-      :exudation-flux 0.05d0 "nM um/s"
+      :exudation-flux 0.05d0 "nmol/L um/s"
       :note "Placeholder: gives a steady dissolved concentration J / sqrt(D k) of about 1 nM at a flat root surface, ten times the detection threshold. Replace with a measured exudation rate.")
      (make-model-parameter
       :kd 33.61d0 "L/kg"
@@ -275,10 +300,11 @@ g/mol), in the units of the file header. Flagged where no source was found
 
 (defun exudate-species (parameters)
   "Return the species of the root exudate set: the SIGNAL-SPECIES of
-:EXUDATE (diffusing with PARAMETERS' :DIFFUSIVITY) and the immobile
-:ROOT-SOURCE, each cell's exudation rate in nM/s."
+:EXUDATE (free-water diffusivity PARAMETERS' :DIFFUSIVITY), the immobile
+:ROOT-SOURCE (each cell's exudation rate per soil volume), and the
+WATER-SPECIES."
   (append (signal-species :exudate (parameter-value parameters :diffusivity))
-          (list (make-species :name :root-source :diffusivity 0d0))))
+          (list (make-species :name :root-source :diffusivity 0d0) (water-species))))
 
 (defun exudate-reactions (parameters)
   "Return the reactions of the root exudate set: release at the rate held
@@ -289,22 +315,26 @@ sorption) with PARAMETERS."
 
 (defun make-root-exudate-world (tessellation root-p &key (parameters (exudate-literature-parameters))
                                                          dt initial-state
-                                                         (diffusion-scheme :imex))
+                                                         (diffusion-scheme :imex) water-content
+                                                         (relative-diffusivity :millington-quirk))
   "Return a fresh MECHANISTIC-WORLD of the root exudate set over
 TESSELLATION, the cells satisfying ROOT-P being root: their :ROOT-SOURCE
-comes from ROOT-SURFACE-SOURCE with PARAMETERS' :EXUDATION-FLUX, and the
-exudate cannot enter them (ROOT-DIFFUSIVITY-FIELD). INITIAL-STATE is an
-alist or a function of a cell id, as for MAKE-MECHANISTIC-WORLD, and must
-not set :ROOT-SOURCE. The scheme defaults to :IMEX, as for MAKE-AHL-WORLD."
+comes from ROOT-SURFACE-SOURCE with PARAMETERS' :EXUDATION-FLUX, and they
+are no-flux walls for the exudate (SET-WATER-CONTENT!'s BLOCKED-P).
+WATER-CONTENT and RELATIVE-DIFFUSIVITY are as for MAKE-AHL-WORLD.
+INITIAL-STATE is an alist or a function of a cell id, as for
+MAKE-MECHANISTIC-WORLD, and must not set :ROOT-SOURCE. The scheme defaults
+to :IMEX, as for MAKE-AHL-WORLD."
   (let ((source (root-surface-source tessellation root-p (parameter-value parameters :exudation-flux))))
-    (make-mechanistic-world
-     tessellation :species (exudate-species parameters) :reactions (exudate-reactions parameters)
-                  :dt dt :diffusion-scheme diffusion-scheme
-                  :initial-state (lambda (id)
-                                   (acons :root-source (funcall source id)
-                                          (if (functionp initial-state)
-                                              (funcall initial-state id)
-                                              initial-state)))
-                  :diffusivity-field (list (cons :exudate (root-diffusivity-field
-                                                           root-p
-                                                           (parameter-value parameters :diffusivity)))))))
+    (set-water-content!
+     (make-mechanistic-world
+      tessellation :species (exudate-species parameters) :reactions (exudate-reactions parameters)
+                   :dt dt :diffusion-scheme diffusion-scheme
+                   :initial-state (lambda (id)
+                                    (acons :root-source (funcall source id)
+                                           (if (functionp initial-state)
+                                               (funcall initial-state id)
+                                               initial-state))))
+     (water-content-field water-content parameters)
+     (relative-diffusivity-model relative-diffusivity parameters)
+     :blocked-p root-p)))

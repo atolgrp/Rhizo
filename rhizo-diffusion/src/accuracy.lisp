@@ -30,15 +30,25 @@ fundamental solution of the diffusion equation with SIGMA^2 = 2 D t."
 
 (defun species-cells (world species-name)
   "Return a list of (area position value) for every cell of WORLD, with
-VALUE the concentration of SPECIES-NAME and POSITION the CELL-POSITION."
+VALUE the concentration of SPECIES-NAME - a species name, or a
+\(:PER name water-name) pore-water reference (CONCENTRATION-OF) - and
+POSITION the CELL-POSITION."
   (let* ((tess (mechanistic-world-tessellation world))
          (index (mechanistic-world-cell-index world))
          (state (mechanistic-world-state world))
-         (s (or (gethash species-name (mechanistic-world-species-index world))
-                (error "SPECIES-CELLS: unknown species ~s" species-name))))
+         (species-index (mechanistic-world-species-index world))
+         (column (lambda (name)
+                   (or (gethash name species-index)
+                       (error "SPECIES-CELLS: unknown species ~s" name))))
+         (value (if (consp species-name)
+                    (let ((num (funcall column (second species-name)))
+                          (den (funcall column (third species-name))))
+                      (lambda (i) (/ (aref state i num) (aref state i den))))
+                    (let ((s (funcall column species-name)))
+                      (lambda (i) (aref state i s))))))
     (loop for i below (cell-index-count index)
           for id = (index->cell-id index i)
-          collect (list (cell-area tess id) (cell-position tess id) (aref state i s)))))
+          collect (list (cell-area tess id) (cell-position tess id) (funcall value i)))))
 
 (defun species-mass (world species)
   "Return the total amount of SPECIES in WORLD - one species name, or a list

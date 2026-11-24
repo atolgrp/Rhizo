@@ -4,6 +4,8 @@
 ;;; Quorum induction of a uniform population (PLAN.md, Phase 2 gate)
 
 (test uniform-ahl-balance-is-production-minus-losses
+  ;; per soil volume, at pore-water concentration c: hydrolysis acts on the
+  ;; dissolved amount theta c
   (let* ((p (ahl-literature-parameters))
          (rho 1d9) (rho-d 1d8) (c 35d0)
          (v (lambda (name) (parameter-value p name))))
@@ -11,7 +13,7 @@
             (uniform-ahl-balance p rho c :degrader-density rho-d)
             (- (* rho (+ (funcall v :basal-production)
                          (* (funcall v :induced-production) (hill-activation c 70d0 2.5d0))))
-               (* (funcall v :hydrolysis-rate) c)
+               (* (funcall v :hydrolysis-rate) (funcall v :water-content) c)
                (/ (* (funcall v :biodegradation-kcat) rho-d c) (+ (funcall v :biodegradation-km) c))))
            1d-12))))
 

@@ -154,28 +154,40 @@ value."
 
 (defun calling-distance-scenario (parameters &optional scenario)
   "Return the analytic calling distances of a producer patch with
-PARAMETERS in SCENARIO (a plist over the keys of DEFAULT-CALLING-SCENARIO;
-missing keys take their defaults), as a plist :STEADY, :TRANSIENT (at
-:TIME), and the inputs :SOURCE-RATE, :DECAY-RATE, :RETARDATION,
-:DECAY-LENGTH, :THRESHOLD. The patch produces at alpha + beta when
-:INDUCED, else alpha; receivers sense at :RECEIVER-THRESHOLD. Assumed:
+PARAMETERS in SCENARIO (a plist over the keys of DEFAULT-CALLING-SCENARIO,
+plus :RELATIVE-DIFFUSIVITY, default :MILLINGTON-QUIRK; missing keys take
+their defaults), as a plist :STEADY, :TRANSIENT (at :TIME), and the inputs
+:SOURCE-RATE, :DIFFUSIVITY, :DECAY-RATE, :CAPACITY, :RETARDATION,
+:DECAY-LENGTH, :THRESHOLD. All in the bulk form of signalling.lisp, with
+theta = :WATER-CONTENT:
+  S = patch area x producer density (per soil volume) x (alpha + beta when
+      :INDUCED, else alpha);
+  D_s = D_0 xi(theta);  k = theta x hydrolysis + kcat rho_d / Km;
+  capacity theta + rho_b K_d (retardation 1 + K').
+Receivers sense at :RECEIVER-THRESHOLD (pore water). Assumed:
 biodegradation by :DEGRADER-DENSITY degraders is linear (AHL far below Km =
-1.5 uM, so k = hydrolysis + kcat rho_d / Km); sorption is at local
-equilibrium; the patch's production is fixed (no feedback from its own
-AHL); receivers do not take up AHL; the slab is 2D (see signalling.lisp), so
-ranges exceed those around a point source in 3D."
+1.5 uM); sorption is at local equilibrium; the patch's production is fixed
+\(no feedback from its own AHL); receivers do not take up AHL; the slab is
+2D (see signalling.lisp), so ranges exceed those around a point source in
+3D."
   (flet ((p (name) (parameter-value parameters name))
          (v (name) (scenario-value scenario name)))
-    (let* ((s (* (v :patch-area) (v :producer-density)
+    (let* ((theta (p :water-content))
+           (s (* (v :patch-area) (v :producer-density)
                  (+ (p :basal-production) (if (v :induced) (p :induced-production) 0d0))))
-           (d (p :diffusivity))
-           (k (+ (p :hydrolysis-rate)
+           (d (* (p :diffusivity)
+                 (funcall (relative-diffusivity-model (getf scenario :relative-diffusivity
+                                                            :millington-quirk)
+                                                      parameters)
+                          theta)))
+           (k (+ (* theta (p :hydrolysis-rate))
                  (/ (* (p :biodegradation-kcat) (v :degrader-density)) (p :biodegradation-km))))
-           (retardation (+ 1d0 (partition-coefficient parameters)))
+           (capacity (+ theta (sorption-coefficient parameters)))
            (threshold (p :receiver-threshold)))
       (list :steady (steady-calling-distance s d k threshold)
-            :transient (transient-calling-distance s d k retardation threshold (v :time))
-            :source-rate s :decay-rate k :retardation retardation
+            :transient (transient-calling-distance s d k capacity threshold (v :time))
+            :source-rate s :diffusivity d :decay-rate k :capacity capacity
+            :retardation (/ capacity theta)
             :decay-length (sqrt (/ d k)) :threshold threshold))))
 
 (defun calling-distance-sensitivity (parameters

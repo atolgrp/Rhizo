@@ -249,7 +249,10 @@
 
    ;; signalling chemistry: AHL quorum sensing and root exudate
    #:partition-coefficient
+   #:sorption-coefficient
    #:sorption-relaxation-rate
+   #:pore-water
+   #:water-content-field
    #:signal-pool
    #:signal-species
    #:production-reaction
@@ -263,7 +266,6 @@
    #:make-ahl-world
    #:root-perimeter
    #:root-surface-source
-   #:root-diffusivity-field
    #:exudate-literature-parameters
    #:exudate-species
    #:exudate-reactions

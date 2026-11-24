@@ -44,6 +44,7 @@ sorption K' = K-PRIME exchanging at the decay rate, induced rate INDUCED."
                                               (make-nearest-seed-grid 400 400 n :seed seed))
                                              :centre '(200d0 . 200d0)
                                              :parameters (gate-parameters 30d0 1d0)
+                                             :relative-diffusivity :no-tortuosity
                                              :r-min 30d0 :r-max 90d0))
                                           seeds)
                                 seeds))))
@@ -62,13 +63,13 @@ sorption K' = K-PRIME exchanging at the decay rate, induced rate INDUCED."
   (let ((run (single-producer-steady-state
               (voronoi-grid-tessellation (make-nearest-seed-grid 400 400 1600 :seed 1))
               :centre '(200d0 . 200d0) :parameters (gate-parameters 30d0 k-prime)
-              :r-min 30d0 :r-max 90d0)))
+              :relative-diffusivity :no-tortuosity :r-min 30d0 :r-max 90d0)))
     (format t "  K' = ~3,1f (1600 cells, mesh 1): L2 ~5,3f%  steps ~d  (sorption must not move it)~%"
             k-prime (* 100 (getf run :l2)) (getf run :steps))))
 (let ((run (single-producer-steady-state
             (voronoi-grid-tessellation (make-nearest-seed-grid 400 400 1600 :seed 1))
             :centre '(200d0 . 200d0) :parameters (gate-parameters 30d0 1d0 :induced 6.389d-13)
-            :density 5d16 :r-min 30d0 :r-max 90d0)))
+            :relative-diffusivity :no-tortuosity :density 5d16 :r-min 30d0 :r-max 90d0)))
   (format t "  with induction (dense producer, source self-induced): L2 ~5,3f%  source ~,3e nM um^2/s~%"
           (* 100 (getf run :l2)) (getf run :source-rate)))
 (finish-output)
@@ -97,7 +98,8 @@ sorption K' = K-PRIME exchanging at the decay rate, induced rate INDUCED."
 (finish-output)
 
 (format t "~&== 3. Calling distance: analytic tables (literature parameters) ==~%")
-(dolist (scenario '(() (:degrader-density 1d9)))
+(dolist (scenario '((:relative-diffusivity :no-tortuosity)
+                    (:relative-diffusivity :no-tortuosity :degrader-density 1d9)))
   (let ((base (calling-distance-scenario (ahl-literature-parameters) scenario)))
     (format t "~&  scenario ~a (defaults: ~a)~%" scenario (default-calling-scenario))
     (format t "    steady ~,1f um, day-one ~,1f um; lambda ~,1f um, R ~,1f, R/k ~,2f h~%"
@@ -112,18 +114,20 @@ sorption K' = K-PRIME exchanging at the decay rate, induced rate INDUCED."
 
 (format t "~&== 3b. Calling distance: simulated vs analytic (scaled: lambda 30 um, 1600 cells) ==~%")
 (defun simulated-calling-distance (tess parameters density threshold source)
-  (let* ((k (parameter-value parameters :hydrolysis-rate))
+  (let* ((k (parameter-value parameters :hydrolysis-rate))  ; of the dissolved amount
          (world (make-ahl-world tess :parameters parameters :dt (/ 0.5d0 k)
+                                     :relative-diffusivity :no-tortuosity
                                      :initial-state (lambda (id)
                                                       (when (equal id source)
                                                         `((:producer . ,density)))))))
     (step-to-steady-state! world :ahl)
-    (calling-distance world :ahl (cell-position tess source) threshold)))
+    (calling-distance world '(:per :ahl :water) (cell-position tess source) threshold)))
 (let* ((tess (voronoi-grid-tessellation (make-nearest-seed-grid 400 400 1600 :seed 1)))
        (source (nearest-cell tess '(200d0 . 200d0)))
        (p (gate-parameters 30d0 0d0))
-       (d (parameter-value p :diffusivity))
-       (k (parameter-value p :hydrolysis-rate))
+       (theta (parameter-value p :water-content))
+       (d (* theta (parameter-value p :diffusivity)))  ; bulk form, free water
+       (k (* theta (parameter-value p :hydrolysis-rate)))
        (density 5d14)
        (s (* (cell-area tess source) density (parameter-value p :basal-production)))
        (threshold (point-source-steady-state s d k 60d0))
@@ -135,10 +139,12 @@ sorption K' = K-PRIME exchanging at the decay rate, induced rate INDUCED."
                              (simulated-calling-distance tess p (/ density f) threshold source)))
                      (* 2 (log f))))
         (e-decay (/ (log (/ (simulated-calling-distance
-                             tess (with-parameter-values p `((:hydrolysis-rate . ,(* k f))))
+                             tess (with-parameter-values
+                                      p `((:hydrolysis-rate . ,(* (/ k theta) f))))
                              density threshold source)
                             (simulated-calling-distance
-                             tess (with-parameter-values p `((:hydrolysis-rate . ,(/ k f))))
+                             tess (with-parameter-values
+                                      p `((:hydrolysis-rate . ,(/ (/ k theta) f))))
                              density threshold source)))
                     (* 2 (log f)))))
     (format t "  elasticity to source strength: simulated ~,3f, analytic ~,3f~%" e-source
