@@ -144,7 +144,31 @@ a uniform 1.0."
                           ;; BUILD-GEOMETRY's first value is the pixel count per cell
                           :cell-areas (values (build-geometry ids width height))
                           :edge-lengths edge-lengths
-                          :cell-positions positions)))
+                          :cell-positions positions
+                          :boundary-faces (raster-boundary-faces ids seed-points width height))))
+
+(defun raster-boundary-faces (ids seed-points width height)
+  "Return the alist side -> list of (cell-id length distance) of the WIDTH
+x HEIGHT raster IDS (see the generic function BOUNDARY-FACES). Pixel
+centres sit at integer coordinates, so the domain edges are the lines x =
+-1/2, x = WIDTH - 1/2, y = -1/2 and y = HEIGHT - 1/2; LENGTH is the number
+of the cell's pixels along that edge and DISTANCE the perpendicular
+distance from its seed (AREF SEED-POINTS id) to the edge."
+  (flet ((side (pixels distance-of)
+           (let ((counts (make-hash-table)))
+             (loop for (x . y) in pixels do (incf (gethash (aref ids x y) counts 0)))
+             (sort (loop for id being the hash-keys of counts using (hash-value count)
+                         collect (list id (float count 1d0)
+                                       (float (funcall distance-of (aref seed-points id)) 1d0)))
+                   #'< :key #'first))))
+    (list (cons :top (side (loop for x below width collect (cons x 0))
+                           (lambda (p) (+ (cdr p) 0.5d0))))
+          (cons :bottom (side (loop for x below width collect (cons x (1- height)))
+                              (lambda (p) (- height 0.5d0 (cdr p)))))
+          (cons :left (side (loop for y below height collect (cons 0 y))
+                            (lambda (p) (+ (car p) 0.5d0))))
+          (cons :right (side (loop for y below height collect (cons (1- width) y))
+                             (lambda (p) (- width 0.5d0 (car p))))))))
 
 (defun make-nearest-seed-grid (width height n-points &key seed)
   "Return a VORONOI-GRID on a WIDTH x HEIGHT pixel grid with N-POINTS cells,

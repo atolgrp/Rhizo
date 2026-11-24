@@ -9,6 +9,7 @@
                (:file "tessellation")
                (:file "voronoi-ca")
                (:file "nearest-seed")
+               (:file "rectangular-grid")
                (:file "world")
                (:file "diffusion")
                (:file "metrics")
@@ -79,7 +80,8 @@
                (:file "water-tests")
                (:file "water-range-tests")
                (:file "signalling-graph-tests")
-               (:file "soil-hydraulics-tests"))
+               (:file "soil-hydraulics-tests")
+               (:file "rectangular-grid-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

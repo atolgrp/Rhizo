@@ -58,6 +58,16 @@ finite-volume flux D * EDGE-LENGTH / d * (C_b - C_a). Seed-to-seed distance
 for Voronoi grids, centroid distance for GIS polygons. Always positive and
 symmetric. Not the same as EDGE-WEIGHT - see the comment above."))
 
+(defgeneric boundary-faces (tessellation side)
+  (:documentation "Return a list of (cell-id length distance), one entry
+per cell of TESSELLATION that touches the outer boundary SIDE (:TOP,
+:BOTTOM, :LEFT or :RIGHT of the domain; y grows downward, so :TOP is the
+smallest y): LENGTH is the boundary the cell shares with that side and
+DISTANCE the perpendicular distance from the cell's value point to it -
+the d of a two-point flux to a boundary value (Richards flow, PLAN.md
+Phase 5). Signals an error for an unknown SIDE or a tessellation built
+without boundary geometry."))
+
 (defgeneric cell-position (tessellation cell-id)
   (:documentation "Return the point (x . y), as double-floats, at which
 CELL-ID holds its value: its seed on a Voronoi grid, its centroid for a GIS
@@ -92,30 +102,36 @@ FACE-DISTANCE and FACE-DISTANCES-FROM-POSITIONS.")
    (cell-positions :initarg :cell-positions :initform nil :reader tessellation-cell-positions
                    :documentation "EQUAL hash-table: cell-id -> (x . y)
 double-float point, or NIL if built without geometry data - see
-CELL-POSITION.")))
+CELL-POSITION.")
+   (boundary-faces :initarg :boundary-faces :initform nil :reader tessellation-boundary-faces
+                   :documentation "Alist side -> list of (cell-id length
+distance), or NIL if built without boundary geometry - see BOUNDARY-FACES.")))
 
 (defun make-hash-graph-tessellation (adjacency &key cell-areas edge-lengths face-distances
-                                                    cell-positions)
+                                                    cell-positions boundary-faces)
   "Return a HASH-GRAPH-TESSELLATION over ADJACENCY. CELL-AREAS,
 EDGE-LENGTHS, FACE-DISTANCES and CELL-POSITIONS are optional - omit them (as
 every topological-only caller does) to get a tessellation that still
 supports every topological operation (NEIGHBORS-OF, EDGE-WEIGHT, front
 propagation, Dijkstra), just not the finite-volume geometry. Builders
 derive FACE-DISTANCES from CELL-POSITIONS (FACE-DISTANCES-FROM-POSITIONS),
-so the two agree by construction."
+so the two agree by construction. BOUNDARY-FACES is an alist side -> list
+of (cell-id length distance) (see the generic function BOUNDARY-FACES)."
   (make-instance 'hash-graph-tessellation
                  :adjacency adjacency :cell-areas cell-areas :edge-lengths edge-lengths
-                 :face-distances face-distances :cell-positions cell-positions))
+                 :face-distances face-distances :cell-positions cell-positions
+                 :boundary-faces boundary-faces))
 
-(defun make-fv-tessellation (adjacency &key cell-areas edge-lengths cell-positions)
+(defun make-fv-tessellation (adjacency &key cell-areas edge-lengths cell-positions
+                                            boundary-faces)
   "Return a HASH-GRAPH-TESSELLATION over ADJACENCY with full finite-volume
-geometry: CELL-AREAS, EDGE-LENGTHS and CELL-POSITIONS as given, and
-FACE-DISTANCES derived from CELL-POSITIONS (FACE-DISTANCES-FROM-POSITIONS).
-Every grid builder goes through here, so FACE-DISTANCE and CELL-POSITION
-cannot disagree."
+geometry: CELL-AREAS, EDGE-LENGTHS, CELL-POSITIONS and (optionally)
+BOUNDARY-FACES as given, and FACE-DISTANCES derived from CELL-POSITIONS
+\(FACE-DISTANCES-FROM-POSITIONS). Every grid builder goes through here, so
+FACE-DISTANCE and CELL-POSITION cannot disagree."
   (make-hash-graph-tessellation
    adjacency :cell-areas cell-areas :edge-lengths edge-lengths
-             :cell-positions cell-positions
+             :cell-positions cell-positions :boundary-faces boundary-faces
              :face-distances (face-distances-from-positions
                               adjacency (lambda (id) (gethash id cell-positions)))))
 
@@ -178,6 +194,14 @@ not the mechanistic reaction-diffusion engine."))
       (unless foundp
         (error "CELL-POSITION: no position recorded for cell ~s" cell-id))
       point)))
+
+(defmethod boundary-faces ((tess hash-graph-tessellation) side)
+  (unless (member side '(:top :bottom :left :right))
+    (error "BOUNDARY-FACES: unknown side ~s (expected :TOP, :BOTTOM, :LEFT or :RIGHT)" side))
+  (let ((faces (tessellation-boundary-faces tess)))
+    (unless faces
+      (error "BOUNDARY-FACES: this tessellation was built without boundary geometry."))
+    (cdr (assoc side faces))))
 
 (defun well-mixed-tessellation (&key (area 1d0) (id "cell"))
   "Return a finite-volume tessellation of one cell ID of AREA, at the

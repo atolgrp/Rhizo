@@ -367,6 +367,12 @@
    #:sandy-clay-loam-parameters
    #:van-genuchten-soil
 
+   ;; outer-boundary geometry and rectangular grids (Phase 5)
+   #:boundary-faces
+   #:make-rectangular-tessellation
+   #:voronoi-grid-ids
+   #:raster-boundary-faces
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
