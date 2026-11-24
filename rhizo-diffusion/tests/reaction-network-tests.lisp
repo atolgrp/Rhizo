@@ -103,3 +103,33 @@ over the species :a :b :biomass :signal."
   (is (= 3d0 (rate-at (mass-action-rate 3d0) '((:a . 2d0)))) "no species: a zero-order rate")
   (is (= (rate-at (first-order-decay-rate 0.3d0 :b) '((:b . 5d0)))
          (rate-at (mass-action-rate 0.3d0 :b) '((:b . 5d0))))))
+
+;;; Pore-water concentrations in rate laws (PLAN.md, Phase 3): a species
+;;; reference is a name, or (:PER name water-name) for amount / water content.
+
+(test concentration-of-reads-names-and-ratios
+  (let* ((index (make-species-index (mapcar (lambda (n) (make-species :name n)) '(:a :w))))
+         (state (make-cell-state index '((:a . 6d0) (:w . 0.3d0)))))
+    (is (= 6d0 (concentration-of state index :a)))
+    (is (< (abs (- 20d0 (concentration-of state index '(:per :a :w)))) 1d-12))
+    (signals error (concentration-of state index :nope))
+    (signals error (concentration-of state index '(:times :a :w)))))
+
+(test rate-laws-accept-pore-water-concentrations
+  ;; state: :a = 6 (amount per soil volume), :b = 3, :biomass 2, :signal 21 with
+  ;; water 0.3, so the pore-water signal is 70 and pore-water :a is 20
+  (let ((values '((:a . 6d0) (:b . 3d0) (:biomass . 2d0) (:signal . 21d0))))
+    (flet ((at (rate-fn)
+             (let ((index (make-species-index (mapcar (lambda (n) (make-species :name n))
+                                                      '(:a :b :biomass :signal :w)))))
+               (funcall rate-fn (make-cell-state index (acons :w 0.3d0 values)) index))))
+      (is (< (abs (- 12d0 (at (induced-production-rate 1d0 10d0 :biomass '(:per :signal :w)
+                                                       70d0 2.5d0))))
+             1d-12) "Hill term 1/2 at a pore-water signal of 70")
+      (is (< (abs (- (/ (* 5d0 2d0 20d0) (+ 10d0 20d0))
+                     (at (michaelis-menten-rate 5d0 :biomass '(:per :a :w) 10d0))))
+             1d-12))
+      (is (< (abs (- (* 0.1d0 (- (* 0.5d0 20d0) 3d0))
+                     (at (linear-reversible-rate 0.1d0 '(:per :a :w) :b 0.5d0))))
+             1d-12) "sorbed equilibrates with the pore-water concentration")
+      (is (< (abs (- 40d0 (at (mass-action-rate 2d0 '(:per :a :w))))) 1d-12)))))

@@ -41,6 +41,18 @@ reaction's rate-fn, so a species name always means the same array slot."
   (aref state (or (gethash name species-index)
                    (error "STATE-VALUE: unknown species ~s" name))))
 
+(defun concentration-of (state species-index reference)
+  "Return the value a rate law reads for REFERENCE in STATE: for a species
+name, its STATE-VALUE; for (:PER name water-name), name's value divided by
+water-name's - an amount per soil volume over the water content, i.e. a
+pore-water concentration (PLAN.md, Phase 3). Signals an error for anything
+else."
+  (cond ((symbolp reference) (state-value state species-index reference))
+        ((and (consp reference) (eq (first reference) :per) (= (length reference) 3))
+         (/ (state-value state species-index (second reference))
+            (state-value state species-index (third reference))))
+        (t (error "CONCENTRATION-OF: not a species reference: ~s" reference))))
+
 (defun make-cell-state (species-index &optional initial-values)
   "A fresh (SIMPLE-ARRAY DOUBLE-FLOAT (n)) cell-state vector, one slot per
 species in SPECIES-INDEX, all zero except any overridden by INITIAL-VALUES
@@ -81,10 +93,14 @@ tests and small examples where per-call allocation doesn't matter."
 ;;; saturating (Hill-type) functional form under two different domain names -
 ;;; one implementation, shared, so they can't silently diverge.
 
+;;; Every rate law below reads species through CONCENTRATION-OF, so a
+;;; species name or a (:PER name water-name) pore-water reference can be
+;;; given wherever a name is.
+
 (defun %saturating-rate (vmax catalyst-name limiting-name half-saturation)
   (lambda (state species-index)
-    (let ((catalyst (state-value state species-index catalyst-name))
-          (limiting (max 0.0d0 (state-value state species-index limiting-name))))
+    (let ((catalyst (concentration-of state species-index catalyst-name))
+          (limiting (max 0.0d0 (concentration-of state species-index limiting-name))))
       (/ (* vmax catalyst limiting) (+ half-saturation limiting)))))
 
 (defun monod-rate (mu-max biomass-name substrate-name half-saturation)
@@ -108,8 +124,8 @@ sorption); negative when the sorbed pool exceeds it (net desorption) - a
 reversible rate law, unlike the one-directional MONOD-RATE/
 MICHAELIS-MENTEN-RATE above."
   (lambda (state species-index)
-    (let ((mobile (state-value state species-index mobile-name))
-          (sorbed (state-value state species-index sorbed-name)))
+    (let ((mobile (concentration-of state species-index mobile-name))
+          (sorbed (concentration-of state species-index sorbed-name)))
       (* rate-constant (- (* partition-coefficient mobile) sorbed)))))
 
 (defun mass-action-rate (rate-constant &rest species-names)
@@ -120,7 +136,7 @@ stoichiometry acts as a catalyst - e.g. a fixed root source driving
 exudation."
   (lambda (state species-index)
     (reduce #'* species-names
-            :key (lambda (name) (state-value state species-index name))
+            :key (lambda (name) (concentration-of state species-index name))
             :initial-value rate-constant)))
 
 (defun first-order-decay-rate (rate-constant species-name)
@@ -146,6 +162,6 @@ term is the positive feedback of autoinduction (luxI expression rising once
 the signal passes the LuxR threshold), the form fitted by Fekete et al.
 \(2010) - see src/signalling.lisp."
   (lambda (state species-index)
-    (* (state-value state species-index biomass-name)
-       (+ basal (* induced (hill-activation (state-value state species-index signal-name)
+    (* (concentration-of state species-index biomass-name)
+       (+ basal (* induced (hill-activation (concentration-of state species-index signal-name)
                                             threshold hill-coefficient))))))

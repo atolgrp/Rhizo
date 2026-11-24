@@ -131,6 +131,7 @@
    #:reaction-rate-fn
    #:make-species-index
    #:state-value
+   #:concentration-of
    #:make-cell-state
    #:net-reaction-derivative!
    #:net-reaction-derivative
