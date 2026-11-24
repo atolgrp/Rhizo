@@ -31,7 +31,8 @@
                (:file "signalling")
                (:file "signalling-analysis")
                (:file "calling-distance")
-               (:file "water-range"))
+               (:file "water-range")
+               (:file "signalling-graph"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
 (asdf:defsystem "rhizo-diffusion/examples"
@@ -74,7 +75,8 @@
                (:file "quorum-tests")
                (:file "calling-distance-tests")
                (:file "water-tests")
-               (:file "water-range-tests"))
+               (:file "water-range-tests")
+               (:file "signalling-graph-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

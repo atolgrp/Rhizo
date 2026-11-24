@@ -314,6 +314,21 @@
    #:water-sensitivity
    #:single-producer-calling-distance
 
+   ;; the signalling graph and its percolation (Phase 4)
+   #:*disc-percolation-filling-factor*
+   #:random-patch-positions
+   #:signalling-edges
+   #:group-components
+   #:weak-components
+   #:strong-components
+   #:largest-component-size
+   #:spanning-p
+   #:critical-connection-radius
+   #:percolation-at-range
+   #:range-at-water
+   #:predicted-percolation-water-content
+   #:percolation-water-content
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
