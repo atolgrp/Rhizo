@@ -385,6 +385,48 @@
    #:vector-norm
    #:residual-vector
 
+   ;; Richards flow: mixed form, Newton, adaptive steps (Phase 5)
+   #:depth-elevation
+   #:time-value
+   #:richards-boundary
+   #:richards-boundary-cell
+   #:richards-boundary-length
+   #:richards-boundary-distance
+   #:richards-boundary-elevation
+   #:richards-boundary-kind
+   #:make-richards-boundaries
+   #:richards-problem
+   #:make-richards-problem
+   #:richards-problem-tessellation
+   #:richards-problem-cell-index
+   #:richards-problem-stencil
+   #:richards-problem-elevations
+   #:richards-problem-soils
+   #:richards-problem-boundaries
+   #:richards-problem-face-mean
+   #:richards-problem-form
+   #:richards-state
+   #:make-richards-state
+   #:richards-state-time
+   #:richards-state-heads
+   #:richards-state-water-contents
+   #:richards-state-face-volumes
+   #:richards-state-boundary-volumes
+   #:richards-state-next-dt
+   #:richards-water-contents
+   #:face-conductivity
+   #:boundary-inflow
+   #:richards-system
+   #:richards-nonconvergence
+   #:richards-step
+   #:run-richards
+   #:richards-storage
+   #:richards-cumulative-inflow
+   #:richards-mass-balance-error
+   #:richards-mass-balance-ratio
+   #:cell-id-
+   #:index-
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
