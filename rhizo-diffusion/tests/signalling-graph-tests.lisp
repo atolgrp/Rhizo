@@ -157,3 +157,47 @@ Millington-Quirk at theta 0.3, no sorption, no induction."
     (is (plusp (species-mass world :tags-produced)))
     (is (< (abs (- (tagged-pool-balance world) before))
            (* 1d-12 (species-mass world :tags-produced))))))
+
+;;; Connectivity over wet/dry cycles (PLAN.md, Phase 4)
+
+(test graph-connectivity-summarises-a-graph
+  ;; 0 <-> 1 -> 2 across [0, 10]; 3 alone
+  (let ((c (graph-connectivity '((0.5d0 . 0d0) (5d0 . 0d0) (9.5d0 . 0d0) (5d0 . 9d0))
+                               '((0 . 1) (1 . 0) (1 . 2)) 10d0 1d0)))
+    (is (= 3/4 (getf c :largest-weak-fraction)))
+    (is (= 1/2 (getf c :largest-strong-fraction)))
+    (is (getf c :spanning))
+    (is (= 3/4 (getf c :mean-degree)))))
+
+(test hysteresis-gap-compares-the-two-branches
+  ;; drying: fraction = theta; wetting: fraction = theta - 0.1
+  (let* ((drying (loop for theta from 0.4d0 downto 0.1d0 by 0.05d0
+                       collect (list :theta theta :largest-weak-fraction theta)))
+         (wetting (loop for theta from 0.1d0 to 0.4d0 by 0.05d0
+                        collect (list :theta theta :largest-weak-fraction (- theta 0.1d0)))))
+    (is (< (abs (- 0.1d0 (hysteresis-gap (append drying wetting)))) 1d-9))
+    (is (< (hysteresis-gap (append drying (reverse drying))) 1d-12) "same path both ways: none")))
+
+(test edge-damkohler-is-decay-over-diffusion
+  ;; Da = k L^2 / D_s with k = theta k_h (+ biodegradation), D_s = D_0 xi(theta)
+  (let* ((parameters (ahl-literature-parameters))
+         (xi (funcall (relative-diffusivity-model :millington-quirk parameters) 0.3d0)))
+    (is (< (relative-difference (edge-damkohler parameters 0.3d0 100d0)
+                                (/ (* 0.3d0 (parameter-value parameters :hydrolysis-rate) 1d4)
+                                   (* 490d0 xi)))
+           1d-12))))
+
+(test connectivity-over-cycle-samples-the-schedule
+  (let* ((tess (tagged-test-grid))
+         (nodes (list (nearest-cell tess '(40d0 . 60d0)) (nearest-cell tess '(80d0 . 60d0))))
+         (positions (mapcar (lambda (id) (cell-position tess id)) nodes))
+         (world (make-tagged-ahl-world tess nodes :parameters (fast-decay-parameters) :dt 0.5d0))
+         (theta (wet-dry-cycle :theta-wet 0.4d0 :theta-dry 0.2d0
+                               :wet-time 2d0 :drying-time 4d0 :dry-time 2d0 :wetting-time 4d0))
+         (samples (connectivity-over-cycle world nodes positions
+                                           (lambda (time) (funcall theta time))
+                                           :millington-quirk 24 4 1d-6 120d0)))
+    (is (= 6 (length samples)))
+    (is (equal '(2d0 4d0 6d0 8d0 10d0 12d0) (mapcar (lambda (s) (getf s :time)) samples)))
+    (is (every (lambda (s) (= (getf s :theta) (funcall theta (getf s :time)))) samples))
+    (is (every (lambda (s) (<= 0 (getf s :largest-weak-fraction) 1)) samples))))

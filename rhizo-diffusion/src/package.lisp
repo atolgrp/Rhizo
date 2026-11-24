@@ -324,7 +324,12 @@
    #:largest-component-size
    #:spanning-p
    #:critical-connection-radius
+   #:graph-connectivity
    #:percolation-at-range
+   #:connectivity-over-cycle
+   #:branch-value
+   #:hysteresis-gap
+   #:edge-damkohler
    #:range-at-water
    #:predicted-percolation-water-content
    #:percolation-water-content
