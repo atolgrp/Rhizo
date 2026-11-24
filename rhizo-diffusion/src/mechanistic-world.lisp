@@ -30,7 +30,11 @@
                   ; m / kappa = pore-water concentration). 1 by default.
   dt
   (diffusion-scheme :explicit) ; :EXPLICIT, :IMPLICIT or :IMEX - see STEP-MECHANISTIC!
-  (tick 0 :type fixnum))
+  (tick 0 :type fixnum)
+  (face-fluxes nil)       ; NIL (no flow) or, per stencil face, the water flux (volume per
+                          ; time) out of the cell through it - see SET-FLOW-FIELD!
+  (boundary-outflows nil) ; NIL or, per cell, water leaving through outer-boundary faces
+  exports)                ; per species: cumulative amount carried out with that water
 
 (defun species-field-array (cell-index species field default valid-p what)
   "Return a fresh (array double-float (n-cells n-species)) in CELL-INDEX
@@ -116,7 +120,8 @@ SET-SPECIES-CAPACITY!)."
      :n-species n-species :state state :dt (float dt 1.0d0) :tick 0
      :diffusivities (diffusivity-array cell-index species diffusivity-field)
      :capacities (capacity-array cell-index species capacity-field)
-     :diffusion-scheme diffusion-scheme)))
+     :diffusion-scheme diffusion-scheme
+     :exports (make-array n-species :element-type 'double-float :initial-element 0d0))))
 
 (defun set-species-column! (world array species-name field valid-p what)
   "Set column SPECIES-NAME of ARRAY, a per-cell per-species array of WORLD,
@@ -171,3 +176,41 @@ it is second-order accurate for smooth fields."
   (lambda (id)
     (let ((point (cell-position tessellation id)))
       (mapcar (lambda (entry) (cons (car entry) (funcall (cdr entry) point))) fields))))
+
+;;; Water flow through the world (PLAN.md, Phase 5). A flow field is a
+;;; water flux per stencil face, positive out of the cell, antisymmetric
+;;; (the flux out of i into j is minus that out of j into i), plus each
+;;; cell's water outflow through the outer boundary. Water entering
+;;; through the boundary (rain) carries no solute. RICHARDS-STEP produces
+;;; exactly such fields; the transport step advects every dissolved species
+;;; with them (ADVECTION-DIFFUSION-COLUMN).
+
+(defun set-flow-field! (world face-fluxes boundary-outflows)
+  "Set WORLD's water flow: FACE-FLUXES, a double-float vector over its
+stencil faces (volume per time out of the cell through each face; see
+above), and BOUNDARY-OUTFLOWS, one non-negative value per cell, or NIL for
+none. FACE-FLUXES NIL removes the flow. Changes only WORLD. Returns
+WORLD."
+  (let ((n-faces (length (flux-stencil-neighbors (mechanistic-world-stencil world))))
+        (n-cells (cell-index-count (mechanistic-world-cell-index world))))
+    (when (and face-fluxes (/= (length face-fluxes) n-faces))
+      (error "SET-FLOW-FIELD!: ~d face fluxes for ~d faces" (length face-fluxes) n-faces))
+    (when boundary-outflows
+      (unless (= (length boundary-outflows) n-cells)
+        (error "SET-FLOW-FIELD!: ~d boundary outflows for ~d cells" (length boundary-outflows) n-cells))
+      (when (some #'minusp boundary-outflows)
+        (error "SET-FLOW-FIELD!: a boundary outflow is negative")))
+    (setf (mechanistic-world-face-fluxes world)
+          (and face-fluxes (coerce face-fluxes '(simple-array double-float (*))))
+          (mechanistic-world-boundary-outflows world)
+          (and face-fluxes boundary-outflows
+               (coerce boundary-outflows '(simple-array double-float (*)))))
+    world))
+
+(defun species-exported (world species)
+  "Return the cumulative amount of SPECIES (one name or a list summed)
+carried out of WORLD with water leaving through its outer boundary."
+  (loop for name in (alexandria:ensure-list species)
+        sum (aref (mechanistic-world-exports world)
+                  (or (gethash name (mechanistic-world-species-index world))
+                      (error "SPECIES-EXPORTED: unknown species ~s" name)))))

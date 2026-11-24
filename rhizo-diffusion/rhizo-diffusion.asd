@@ -84,7 +84,8 @@
                (:file "soil-hydraulics-tests")
                (:file "rectangular-grid-tests")
                (:file "sparse-solver-tests")
-               (:file "richards-tests"))
+               (:file "richards-tests")
+               (:file "advection-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

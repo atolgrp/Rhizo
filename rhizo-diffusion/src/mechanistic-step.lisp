@@ -125,6 +125,8 @@ tick's starting state (double-buffered via a fresh array, then swapped in)
 so it's safe to parallelize with PMAP-CELL-RANGE! even though every cell's
 new value depends on its neighbors' old ones - the standard safe way to do
 a synchronous CA-style update."
+  (when (mechanistic-world-face-fluxes world)
+    (error "DIFFUSION-SUBSTEP!: advection needs the :IMPLICIT or :IMEX scheme (implicit upwinding)"))
   (let* ((stencil (mechanistic-world-stencil world))
          (areas (flux-stencil-areas stencil))
          (n-cells (length areas))

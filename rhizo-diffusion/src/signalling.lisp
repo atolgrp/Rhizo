@@ -219,10 +219,12 @@ reactions (about 5.6 for the Strang schemes' RK4)."
    (relative-diffusivity-model relative-diffusivity parameters)))
 
 (defun pool-balance (world plus minus)
-  "Return the total amount (SPECIES-MASS) of the species named in PLUS
-minus that of those in MINUS, in WORLD - an accounting identity such as
-stored + lost - produced, which a conserving run keeps constant."
-  (- (species-mass world plus) (species-mass world minus)))
+  "Return the total amount (SPECIES-MASS plus SPECIES-EXPORTED, i.e.
+including what water carried out of the domain) of the species named in
+PLUS minus that of those in MINUS, in WORLD - an accounting identity such
+as stored + lost - produced, which a conserving run keeps constant."
+  (- (+ (species-mass world plus) (species-exported world plus))
+     (+ (species-mass world minus) (species-exported world minus))))
 
 (defun signal-pool-balance (world signal)
   "Return SIGNAL + its SORBED and LOST pools - its PRODUCED pool, in WORLD

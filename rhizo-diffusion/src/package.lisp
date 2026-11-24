@@ -427,6 +427,15 @@
    #:cell-id-
    #:index-
 
+   ;; advective transport: flow fields and exports (Phase 5)
+   #:set-flow-field!
+   #:species-exported
+   #:mechanistic-world-face-fluxes
+   #:mechanistic-world-boundary-outflows
+   #:mechanistic-world-exports
+   #:advection-diffusion-column
+   #:safe-inverse-diagonal
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))

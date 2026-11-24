@@ -308,10 +308,74 @@ number of CG iterations."
       (values (if capacity (map '(simple-array double-float (*)) #'* capacity solution) solution)
               iterations))))
 
+;;; Advection with implicit upwinding (PLAN.md, Phase 5). With a flow
+;;; field (SET-FLOW-FIELD!), each dissolved species solves
+;;;
+;;;   A kappa x' + dt (K x' + U x' + B x') = A m,      m' = kappa x',
+;;;
+;;; U the upwind advection matrix - the flux out of i through face k carries
+;;; x_i when it leaves i, x_j when it enters - and B the diagonal of
+;;; boundary outflows. Not symmetric, so BICGSTAB. It is an M-matrix, so no
+;;; new extrema; first-order upwinding adds a numerical dispersion v dx / 2
+;;; (+ v^2 dt / 2 from backward Euler), measured in the tests. With kappa
+;;; the water content after the flow step and the fluxes of that step, a
+;;; uniform concentration stays uniform: the water balance and the solute
+;;; balance are the same equation. Interior fluxes cancel in pairs, so the
+;;; amount lost is exactly dt sum_i B_i x'_i, which the world records as an
+;;; export.
+
+(defparameter *advection-tolerance* 1d-14
+  "Relative residual at which BICGSTAB stops for an advection-diffusion
+solve: amounts are conserved to about this accuracy per step. CG reaches
+1e-15 on the symmetric diffusion system (*IMPLICIT-TOLERANCE*); BiCGSTAB's
+true residual does not always get there.")
+
+(defun advection-diffusion-column (stencil dt diffusivity column capacity face-fluxes
+                                   boundary-outflows &key (tolerance *advection-tolerance*))
+  "Return (values AMOUNTS ITERATIONS EXPORTED): one backward Euler step of
+DT of advection (upwind, FACE-FLUXES per stencil face, BOUNDARY-OUTFLOWS
+per cell or NIL) and diffusion (DIFFUSIVITY per cell) of COLUMN, one
+species' amounts per cell volume with storage CAPACITY (per cell, or NIL
+for 1) - see above. EXPORTED is the amount carried out through the
+boundary during the step (area-weighted, as SPECIES-MASS)."
+  (declare (type (simple-array double-float (*)) face-fluxes))
+  (let* ((areas (flux-stencil-areas stencil))
+         (offsets (flux-stencil-offsets stencil))
+         (neighbors (flux-stencil-neighbors stencil))
+         (n (length areas))
+         (coefficients (face-coefficients stencil dt diffusivity))
+         (diagonal (capacity-diagonal stencil capacity))
+         (off (make-array (length neighbors) :element-type 'double-float))
+         (b (map '(simple-array double-float (*)) #'* areas column)))
+    (dotimes (i n)
+      (when boundary-outflows
+        (incf (aref diagonal i) (* dt (aref boundary-outflows i))))
+      (loop for k from (aref offsets i) below (aref offsets (1+ i))
+            for q = (aref face-fluxes k)
+            do (incf (aref diagonal i) (+ (aref coefficients k) (* dt (max q 0d0))))
+               (setf (aref off k) (- (+ (aref coefficients k) (* dt (max (- q) 0d0)))))))
+    (multiple-value-bind (x iterations)
+        (bicgstab (lambda (v) (apply-csr-matrix stencil diagonal off v))
+                  b (intensity-column column capacity)
+                  :inverse-diagonal (safe-inverse-diagonal diagonal) :tolerance tolerance)
+      (values (if capacity (map '(simple-array double-float (*)) #'* capacity x) x)
+              iterations
+              (if boundary-outflows
+                  (* dt (loop for i below n sum (* (aref boundary-outflows i) (aref x i))))
+                  0d0)))))
+
+(defun safe-inverse-diagonal (diagonal)
+  "Return a fresh vector of 1 / DIAGONAL_i, with 1 where DIAGONAL_i is 0:
+a Jacobi preconditioner that cannot divide by zero."
+  (map '(simple-array double-float (*)) (lambda (d) (if (zerop d) 1d0 (/ 1d0 d))) diagonal))
+
 (defun implicit-diffusion-substep! (world dt &key (tolerance *implicit-tolerance*))
   "Advance every mobile species of WORLD by DT of backward Euler
 finite-volume diffusion (see the file header), stable at any DT, with the
-world's per-cell diffusivities. Species with zero diffusivity in every cell
+world's per-cell diffusivities - and, when WORLD has a flow field
+\(SET-FLOW-FIELD!), upwind advection of every dissolved species (free-water
+diffusivity above zero; ADVECTION-DIFFUSION-COLUMN), recording what leaves
+in its exports. Species with zero diffusivity in every cell and no flow
 pass through unchanged. Returns WORLD, and as
 second value the largest number of CG iterations any species needed."
   (let* ((stencil (mechanistic-world-stencil world))
@@ -320,15 +384,28 @@ second value the largest number of CG iterations any species needed."
          (diffusivities (mechanistic-world-diffusivities world))
          (capacities (mechanistic-world-capacities world))
          (max-iterations 0))
-    (dotimes (s (mechanistic-world-n-species world))
-      (let ((diffusivity (state-column diffusivities s)))
-        (when (some #'plusp diffusivity)
-          (multiple-value-bind (column iterations)
-              (implicit-diffusion-column stencil dt diffusivity (state-column old-state s)
-                                         :tolerance tolerance
-                                         :capacity (state-column capacities s))
-            (setf max-iterations (max max-iterations iterations))
-            (dotimes (i (length column))
-              (setf (aref new-state i s) (aref column i)))))))
+    (loop for s below (mechanistic-world-n-species world)
+          for species in (mechanistic-world-species-list world)
+          for diffusivity = (state-column diffusivities s)
+          do (cond ((and (mechanistic-world-face-fluxes world)
+                         (plusp (species-diffusivity species)))
+                    ;; dissolved (free-water D > 0) and the water moves
+                    (multiple-value-bind (column iterations exported)
+                        (advection-diffusion-column stencil dt diffusivity (state-column old-state s)
+                                                    (state-column capacities s)
+                                                    (mechanistic-world-face-fluxes world)
+                                                    (mechanistic-world-boundary-outflows world))
+                      (setf max-iterations (max max-iterations iterations))
+                      (incf (aref (mechanistic-world-exports world) s) exported)
+                      (dotimes (i (length column))
+                        (setf (aref new-state i s) (aref column i)))))
+                   ((some #'plusp diffusivity)
+                    (multiple-value-bind (column iterations)
+                        (implicit-diffusion-column stencil dt diffusivity (state-column old-state s)
+                                                   :tolerance tolerance
+                                                   :capacity (state-column capacities s))
+                      (setf max-iterations (max max-iterations iterations))
+                      (dotimes (i (length column))
+                        (setf (aref new-state i s) (aref column i)))))))
     (setf (mechanistic-world-state world) new-state)
     (values world max-iterations)))

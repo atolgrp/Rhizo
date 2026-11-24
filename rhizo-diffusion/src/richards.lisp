@@ -276,11 +276,6 @@ All fresh vectors."
   (:documentation "Signalled by RICHARDS-STEP when Newton's method does not
 reach its tolerance; RUN-RICHARDS retries with a smaller step."))
 
-(defun safe-inverse-diagonal (diagonal)
-  "Return a fresh vector of 1 / DIAGONAL_i, with 1 where DIAGONAL_i is 0:
-a Jacobi preconditioner that cannot divide by zero."
-  (map '(simple-array double-float (*)) (lambda (d) (if (zerop d) 1d0 (/ 1d0 d))) diagonal))
-
 (defun richards-step (problem state dt &key (tolerance 1d-10) (max-iterations 15)
                                             (linear-tolerance 1d-10))
   "Return (values NEW-STATE ITERATIONS): STATE advanced by one backward
