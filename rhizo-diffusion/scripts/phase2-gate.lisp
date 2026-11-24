@@ -102,9 +102,9 @@ sorption K' = K-PRIME exchanging at the decay rate, induced rate INDUCED."
                     (:relative-diffusivity :no-tortuosity :degrader-density 1d9)))
   (let ((base (calling-distance-scenario (ahl-literature-parameters) scenario)))
     (format t "~&  scenario ~a (defaults: ~a)~%" scenario (default-calling-scenario))
-    (format t "    steady ~,1f um, day-one ~,1f um; lambda ~,1f um, R ~,1f, R/k ~,2f h~%"
+    (format t "    steady ~,1f um, day-one ~,1f um; lambda ~,1f um, R ~,1f, relaxation time ~,2f h~%"
             (getf base :steady) (getf base :transient) (getf base :decay-length)
-            (getf base :retardation) (/ (getf base :retardation) (getf base :decay-rate) 3600))
+            (getf base :retardation) (/ (getf base :capacity) (getf base :decay-rate) 3600))
     (format t "    ~22a ~12a  ~8a  ~8a~%" "parameter" "base" "steady" "day one")
     (dolist (row (calling-distance-sensitivity (ahl-literature-parameters) :scenario scenario))
       (destructuring-bind (name value steady transient) row
