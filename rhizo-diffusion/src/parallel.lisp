@@ -38,16 +38,20 @@ would race. If LPARALLEL:*KERNEL* is already bound (e.g. this call happens
 inside a REPLICATE-FN passed to RUN-REPLICATES, which already has one),
 that kernel is reused; otherwise a temporary one sized to WORKERS is
 started and torn down, so a single mechanistic run outside a replicate
-batch still parallelizes its own per-tick cell updates."
-  (call-with-kernel
-   (lambda ()
-     (lparallel:pmap
-      nil
-      (lambda (start)
-        (loop for i from start below (min n (+ start chunk-size))
-              do (funcall update-fn i)))
-      (loop for start from 0 below n by chunk-size collect start)))
-   :workers workers))
+batch still parallelizes its own per-tick cell updates. A range that fits
+in one chunk runs in the calling thread: handing it to a worker only adds
+the hand-off's cost (it dominates stepping a one-cell world)."
+  (if (<= n chunk-size)
+      (dotimes (i n) (funcall update-fn i))
+      (call-with-kernel
+       (lambda ()
+         (lparallel:pmap
+          nil
+          (lambda (start)
+            (loop for i from start below (min n (+ start chunk-size))
+                  do (funcall update-fn i)))
+          (loop for start from 0 below n by chunk-size collect start)))
+       :workers workers)))
 
 (defun run-replicates (n replicate-fn &key (workers 4) base-seed)
   "Run N replicates of REPLICATE-FN concurrently. REPLICATE-FN takes one

@@ -28,3 +28,13 @@ reached - enough to tell two replicates apart without doing real work."
     (declare (ignore base))
     (is (= 8 (length (remove-duplicates seeds))))
     (is (= 8 (length (remove-duplicates results :test #'equal))))))
+
+(test pmap-cell-range-runs-a-single-chunk-in-the-calling-thread
+  ;; no thread hand-off for a range that fits one chunk (e.g. a well-mixed
+  ;; one-cell world, stepped hundreds of thousands of times)
+  (let ((caller (bt:current-thread))
+        (threads '()))
+    (pmap-cell-range! 3 (lambda (i) (declare (ignore i)) (push (bt:current-thread) threads))
+                      :chunk-size 256)
+    (is (= 3 (length threads)))
+    (is (every (lambda (thread) (eq thread caller)) threads))))
