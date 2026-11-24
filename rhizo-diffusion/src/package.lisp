@@ -141,6 +141,20 @@
    #:hill-activation
    #:induced-production-rate
 
+   ;; model parameters with their literature sources
+   #:model-parameter
+   #:make-model-parameter
+   #:model-parameter-name
+   #:model-parameter-value
+   #:model-parameter-unit
+   #:model-parameter-source
+   #:model-parameter-note
+   #:find-parameter
+   #:parameter-value
+   #:flagged-parameters
+   #:with-parameter-values
+   #:parameter-table-rows
+
    ;; mechanistic world: state container for the reaction-diffusion engine
    #:mechanistic-world
    #:make-mechanistic-world

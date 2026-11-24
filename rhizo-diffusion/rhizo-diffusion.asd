@@ -21,6 +21,7 @@
                (:file "shape-metrics")
                (:file "validation")
                (:file "reaction-network")
+               (:file "parameters")
                (:file "flux-stencil")
                (:file "mechanistic-world")
                (:file "implicit-diffusion")
@@ -59,7 +60,8 @@
                (:file "accuracy-tests")
                (:file "implicit-diffusion-tests")
                (:file "diffusivity-field-tests")
-               (:file "pfas-example-tests"))
+               (:file "pfas-example-tests")
+               (:file "parameters-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!
