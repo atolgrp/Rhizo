@@ -226,6 +226,16 @@
    #:point-source-isotropy
    #:retardation-measurement
 
+   ;; signalling chemistry: AHL quorum sensing
+   #:ahl-literature-parameters
+   #:ahl-partition-coefficient
+   #:sorption-relaxation-rate
+   #:ahl-species
+   #:ahl-reactions
+   #:make-ahl-world
+   #:pool-balance
+   #:ahl-pool-balance
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
