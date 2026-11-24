@@ -112,8 +112,40 @@ MICHAELIS-MENTEN-RATE above."
           (sorbed (state-value state species-index sorbed-name)))
       (* rate-constant (- (* partition-coefficient mobile) sorbed)))))
 
+(defun mass-action-rate (rate-constant &rest species-names)
+  "Mass-action rate law: RATE-CONSTANT times the product of the
+concentrations of SPECIES-NAMES (zero-order, just RATE-CONSTANT, when none
+are given). A species named here but not consumed by the reaction's
+stoichiometry acts as a catalyst - e.g. a fixed root source driving
+exudation."
+  (lambda (state species-index)
+    (reduce #'* species-names
+            :key (lambda (name) (state-value state species-index name))
+            :initial-value rate-constant)))
+
 (defun first-order-decay-rate (rate-constant species-name)
   "Rate = RATE-CONSTANT * [SPECIES-NAME] - standard first-order decay, used
-here for microbial biomass death."
+for microbial biomass death and abiotic hydrolysis. The one-species case of
+MASS-ACTION-RATE."
+  (mass-action-rate rate-constant species-name))
+
+(defun hill-activation (x threshold hill-coefficient)
+  "Return the Hill activation x^n / (THRESHOLD^n + x^n), n =
+HILL-COEFFICIENT: 0 at no signal, 1/2 at X = THRESHOLD, rising to 1. X at or
+below zero (round-off) gives 0. THRESHOLD must be positive."
+  (if (plusp x)
+      (let ((xn (expt (float x 1.0d0) hill-coefficient)))
+        (/ xn (+ (expt (float threshold 1.0d0) hill-coefficient) xn)))
+      0.0d0))
+
+(defun induced-production-rate (basal induced biomass-name signal-name threshold hill-coefficient)
+  "Production rate of a signal by quorum-sensing producers:
+[BIOMASS-NAME] * (BASAL + INDUCED * HILL-ACTIVATION([SIGNAL-NAME], THRESHOLD,
+HILL-COEFFICIENT)). BASAL and INDUCED are per unit biomass; the induced
+term is the positive feedback of autoinduction (luxI expression rising once
+the signal passes the LuxR threshold), the form fitted by Fekete et al.
+\(2010) - see src/signalling.lisp."
   (lambda (state species-index)
-    (* rate-constant (state-value state species-index species-name))))
+    (* (state-value state species-index biomass-name)
+       (+ basal (* induced (hill-activation (state-value state species-index signal-name)
+                                            threshold hill-coefficient))))))

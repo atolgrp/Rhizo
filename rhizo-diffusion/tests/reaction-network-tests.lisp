@@ -70,3 +70,36 @@
           (high (funcall rate-fn (make-cell-state index '((:biomass . 1.0d0) (:substrate . 100.0d0))) index)))
       (is (< low high) "rate should increase with more substrate")
       (is (< high 1.05d0) "rate should approach mu-max=1.0 as substrate -> infinity, not exceed it"))))
+
+;;; Rate laws for signalling chemistry (PLAN.md, Phase 2)
+
+(defun rate-at (rate-fn values)
+  "Evaluate RATE-FN on a cell state holding VALUES, an alist (name . value)
+over the species :a :b :biomass :signal."
+  (let ((index (make-species-index (mapcar (lambda (name) (make-species :name name))
+                                           '(:a :b :biomass :signal)))))
+    (funcall rate-fn (make-cell-state index values) index)))
+
+(test hill-activation-values
+  (is (= 0.5d0 (hill-activation 70d0 70d0 2.5d0)))
+  (is (= 0d0 (hill-activation 0d0 70d0 2.5d0)))
+  (is (= 0d0 (hill-activation -1d0 70d0 2.5d0)) "negative round-off counts as zero signal")
+  (is (< (abs (- 0.8d0 (hill-activation 2d0 1d0 2d0))) 1d-15)) ; 4 / (1 + 4)
+  (is (< (abs (- (/ 1d0 3d0) (hill-activation 0.5d0 1d0 1d0))) 1d-15)) ; 0.5 / 1.5
+  (is (< 0.9999d0 (hill-activation 1d4 1d0 2d0) 1d0)))
+
+(test induced-production-rate-is-biomass-times-basal-plus-induced-hill
+  (let ((rate (induced-production-rate 1d0 10d0 :biomass :signal 70d0 2.5d0)))
+    ;; at the threshold the Hill term is 1/2: 2 * (1 + 10/2)
+    (is (= 12d0 (rate-at rate '((:biomass . 2d0) (:signal . 70d0)))))
+    ;; no signal: basal only
+    (is (= 2d0 (rate-at rate '((:biomass . 2d0)))))
+    ;; no producers: nothing
+    (is (= 0d0 (rate-at rate '((:signal . 1d3)))))))
+
+(test mass-action-rate-is-constant-times-product-of-concentrations
+  (is (= 30d0 (rate-at (mass-action-rate 3d0 :a :b) '((:a . 2d0) (:b . 5d0)))))
+  (is (= 6d0 (rate-at (mass-action-rate 3d0 :a) '((:a . 2d0) (:b . 5d0)))))
+  (is (= 3d0 (rate-at (mass-action-rate 3d0) '((:a . 2d0)))) "no species: a zero-order rate")
+  (is (= (rate-at (first-order-decay-rate 0.3d0 :b) '((:b . 5d0)))
+         (rate-at (mass-action-rate 0.3d0 :b) '((:b . 5d0))))))

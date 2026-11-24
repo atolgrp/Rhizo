@@ -137,6 +137,9 @@
    #:michaelis-menten-rate
    #:linear-reversible-rate
    #:first-order-decay-rate
+   #:mass-action-rate
+   #:hill-activation
+   #:induced-production-rate
 
    ;; mechanistic world: state container for the reaction-diffusion engine
    #:mechanistic-world
