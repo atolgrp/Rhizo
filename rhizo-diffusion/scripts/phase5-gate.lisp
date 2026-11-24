@@ -112,7 +112,7 @@ by linear interpolation in PROFILE ((depth theta) top to bottom)."
 (finish-output)
 
 (format t "  c. the same column on a nearest-seed Voronoi slab (20 cm x 100 cm, 0.5 cm pixels):~%")
-(dolist (n '(400 1600))
+(dolist (n '(400 1600 6400))
   (let* ((grid (make-nearest-seed-grid 40 200 n :seed 11))
          (tess (voronoi-grid-tessellation grid))
          ;; lengths in pixels of 0.5 cm: 2 length units per cm (heads too)

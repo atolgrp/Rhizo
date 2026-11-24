@@ -36,7 +36,8 @@
                (:file "signalling-graph")
                (:file "tagged-signal")
                (:file "soil-hydraulics")
-               (:file "richards"))
+               (:file "richards")
+               (:file "flow-signalling"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
 (asdf:defsystem "rhizo-diffusion/examples"
@@ -85,7 +86,8 @@
                (:file "rectangular-grid-tests")
                (:file "sparse-solver-tests")
                (:file "richards-tests")
-               (:file "advection-tests"))
+               (:file "advection-tests")
+               (:file "flow-signalling-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!

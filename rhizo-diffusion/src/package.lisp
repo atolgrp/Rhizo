@@ -436,6 +436,20 @@
    #:advection-diffusion-column
    #:safe-inverse-diagonal
 
+   ;; flow-driven signalling: coupling and directional links (Phase 5)
+   #:richards-mean-fluxes
+   #:step-flow-transport!
+   #:run-with-flow!
+   #:advective-decay-rate
+   #:advective-point-source-steady-state
+   #:advective-point-source-transient
+   #:directional-calling-distance
+   #:flow-signal-field
+   #:flow-signalling-edges
+   #:one-way-fraction
+   #:directed-spanning-p
+   #:flow-graph-connectivity
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))
