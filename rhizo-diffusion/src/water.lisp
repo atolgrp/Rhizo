@@ -138,3 +138,44 @@ Changes only WORLD. Returns WORLD."
           (error "SET-WATER-CONTENT!: water content ~a in cell ~s is not positive"
                  theta (index->cell-id index i)))
         (setf (aref state i water) theta)))))
+
+;;; Prescribed water content over time (PLAN.md, Phase 3): no flow solver,
+;;; theta(t) imposed as wet/dry cycles. A water schedule is a function of
+;;; time returning a field - a function of a cell id - or a number for
+;;; uniform water.
+
+(defun wet-dry-period (&key wet-time drying-time dry-time wetting-time)
+  "Return the period of a WET-DRY-CYCLE with these phase durations."
+  (+ wet-time drying-time dry-time wetting-time))
+
+(defun wet-dry-cycle (&key theta-wet theta-dry wet-time drying-time dry-time wetting-time)
+  "Return a periodic water content theta(time): THETA-WET for WET-TIME,
+falling linearly to THETA-DRY over DRYING-TIME, THETA-DRY for DRY-TIME, and
+rising linearly back over WETTING-TIME (period WET-DRY-PERIOD), starting
+wet at time 0. Any phase may last zero time."
+  (let ((period (wet-dry-period :wet-time wet-time :drying-time drying-time
+                                :dry-time dry-time :wetting-time wetting-time)))
+    (lambda (time)
+      (let ((phase (mod time period)))
+        (cond ((< phase wet-time) theta-wet)
+              ((< phase (+ wet-time drying-time))
+               (+ theta-wet (* (- theta-dry theta-wet) (/ (- phase wet-time) drying-time))))
+              ((< phase (+ wet-time drying-time dry-time)) theta-dry)
+              (t (+ theta-dry (* (- theta-wet theta-dry)
+                                 (/ (- phase wet-time drying-time dry-time) wetting-time)))))))))
+
+(defun run-with-water! (world n-steps schedule relation &key (blocked-p (constantly nil)))
+  "Advance WORLD by N-STEPS calls to STEP-MECHANISTIC!, setting the water
+content before each from SCHEDULE, a function of time (tick x dt) returning
+a field (function of a cell id) or a number, with the relative diffusivity
+RELATION and BLOCKED-P as for SET-WATER-CONTENT!. Solute stays where it is
+when water leaves, so mass is conserved through drying. Returns WORLD."
+  (call-with-kernel
+   (lambda ()
+     (dotimes (k n-steps)
+       (let ((field (funcall schedule (* (mechanistic-world-tick world)
+                                         (mechanistic-world-dt world)))))
+         (set-water-content! world (if (functionp field) field (constantly field)) relation
+                             :blocked-p blocked-p))
+       (step-mechanistic! world))))
+  world)

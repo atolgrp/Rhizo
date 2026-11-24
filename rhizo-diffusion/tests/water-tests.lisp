@@ -91,3 +91,50 @@ content."
                                             (mechanistic-world-species-index world)
                                             '(:per :c :water))))
              1d-12)))))
+
+;;; Prescribed water content over time (PLAN.md, Phase 3)
+
+(test wet-dry-cycle-is-a-periodic-trapezoid
+  ;; wet 0.4 for 10, dry to 0.1 over 20, dry for 30, wet again over 40: period 100
+  (let ((theta (wet-dry-cycle :theta-wet 0.4d0 :theta-dry 0.1d0
+                              :wet-time 10d0 :drying-time 20d0 :dry-time 30d0 :wetting-time 40d0)))
+    (is (= 0.4d0 (funcall theta 0d0)))
+    (is (= 0.4d0 (funcall theta 10d0)))
+    (is (< (abs (- 0.25d0 (funcall theta 20d0))) 1d-15) "half way down the drying ramp")
+    (is (= 0.1d0 (funcall theta 45d0)))
+    (is (< (abs (- 0.175d0 (funcall theta 70d0))) 1d-15) "a quarter up the wetting ramp")
+    (is (< (abs (- (funcall theta 20d0) (funcall theta 320d0))) 1d-15) "periodic")
+    (is (= 100d0 (wet-dry-period :wet-time 10d0 :drying-time 20d0 :dry-time 30d0 :wetting-time 40d0)))))
+
+(test run-with-water-applies-the-schedule-and-conserves-solute
+  ;; free solute, no reactions: water swings 0.4 -> 0.1 -> 0.4; the amount
+  ;; is conserved and the pore-water concentration follows 1 / theta
+  (let* ((world (make-mechanistic-world
+                 (two-cell-tessellation 1d0 1d0 1d0)
+                 :species (list (make-species :name :c :diffusivity 1d0) (water-species))
+                 :reactions '() :dt 1d0 :diffusion-scheme :imex
+                 :initial-state '((:c . 2d0) (:water . 0.4d0))))
+         (theta (wet-dry-cycle :theta-wet 0.4d0 :theta-dry 0.1d0
+                               :wet-time 5d0 :drying-time 10d0 :dry-time 5d0 :wetting-time 10d0))
+         (mass (species-mass world :c)))
+    (run-with-water! world 17 (lambda (time) (constantly (funcall theta time))) #'identity)
+    ;; the last step ran at t = 16 (dry plateau: 0.1)
+    (is (= 0.1d0 (cell-species-value world "0" :water)))
+    (is (< (abs (- (species-mass world :c) mass)) 1d-12))
+    (is (< (abs (- (third (first (species-cells world '(:per :c :water)))) 20d0)) 1d-9))))
+
+(test run-with-water-keeps-the-ahl-pool-balance
+  (let* ((tess (voronoi-grid-tessellation (make-nearest-seed-grid 60 60 30 :seed 4)))
+         (producers (subseq (cell-ids tess) 0 5))
+         (world (make-ahl-world tess :dt 50d0
+                                     :initial-state (lambda (id)
+                                                      `((:ahl . 3d0)
+                                                        (:producer . ,(if (member id producers) 1d12 0d0))))))
+         (theta (wet-dry-cycle :theta-wet 0.4d0 :theta-dry 0.15d0
+                               :wet-time 500d0 :drying-time 500d0 :dry-time 500d0 :wetting-time 500d0))
+         (before (signal-pool-balance world :ahl)))
+    (run-with-water! world 80 (lambda (time) (constantly (funcall theta time)))
+                     (relative-diffusivity-model :millington-quirk (soil-parameters)))
+    (let ((produced (species-mass world :ahl-produced)))
+      (is (plusp produced))
+      (is (< (abs (- (signal-pool-balance world :ahl) before)) (* 1d-12 (+ produced (abs before))))))))

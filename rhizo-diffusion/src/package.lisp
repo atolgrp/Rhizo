@@ -246,6 +246,9 @@
    #:no-tortuosity
    #:water-species
    #:set-water-content!
+   #:wet-dry-period
+   #:wet-dry-cycle
+   #:run-with-water!
 
    ;; signalling chemistry: AHL quorum sensing and root exudate
    #:partition-coefficient
