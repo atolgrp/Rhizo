@@ -92,14 +92,16 @@ ln(FN(X FACTOR) / FN(X / FACTOR)) / (2 ln FACTOR); NIL when X is zero."
     (/ (log (/ (funcall fn (* x factor)) (funcall fn (/ x factor))))
        (* 2 (log factor)))))
 
-(defun radial-profile (world species origin bin-width)
+(defun radial-profile (world species origin bin-width &key (keep (constantly t)))
   "Return the radial profile of SPECIES in WORLD about the point ORIGIN: a
 list of (r . c), one per non-empty annulus [i w, (i+1) w) of width
 BIN-WIDTH w, with r its centre and c the area-weighted mean concentration of
-the cells whose CELL-POSITION lies in it, in increasing r."
+the cells whose CELL-POSITION lies in it - and satisfies KEEP (a predicate
+of the position; e.g. SECTOR-PREDICATE for one direction) - in increasing r."
   (let ((bins (make-hash-table)))
     (loop for (area position value) in (species-cells world species)
           for i = (floor (point-distance position origin) bin-width)
+          when (funcall keep position)
           do (let ((bin (or (gethash i bins) (setf (gethash i bins) (list 0d0 0d0)))))
                (incf (first bin) area)
                (incf (second bin) (* area value))))
@@ -119,17 +121,18 @@ does."
                      (+ r0 (* (- r1 r0) (/ (log (/ c0 threshold)) (log (/ c0 c1)))))
                      (+ r0 (* (- r1 r0) (/ (- c0 threshold) (- c0 c1)))))))
 
-(defun calling-distance (world species origin threshold &key bin-width)
+(defun calling-distance (world species origin threshold &key bin-width (keep (constantly t)))
   "Return the calling distance measured in WORLD: where the RADIAL-PROFILE
-of SPECIES about ORIGIN crosses THRESHOLD (PROFILE-CROSSING). BIN-WIDTH
-defaults to the mean cell spacing, sqrt(total area / cells). NIL if the
-profile never falls below THRESHOLD."
+of SPECIES about ORIGIN (restricted to positions satisfying KEEP) crosses
+THRESHOLD (PROFILE-CROSSING). BIN-WIDTH defaults to the mean cell spacing,
+sqrt(total area / cells). NIL if the profile never falls below THRESHOLD."
   (let ((tess (mechanistic-world-tessellation world)))
     (profile-crossing
      (radial-profile world species origin
                      (or bin-width
                          (sqrt (/ (reduce #'+ (cell-ids tess) :key (lambda (id) (cell-area tess id)))
-                                  (cell-count tess)))))
+                                  (cell-count tess))))
+                     :keep keep)
      threshold)))
 
 (defun default-calling-scenario ()

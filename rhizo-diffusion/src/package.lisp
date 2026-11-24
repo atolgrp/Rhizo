@@ -450,6 +450,15 @@
    #:directed-spanning-p
    #:flow-graph-connectivity
 
+   ;; steady rain-fed water content (Phase 5)
+   #:steady-drainage-head
+   #:steady-drainage-water-content
+   #:flow-soil-parameters
+
+   ;; prescribed uniform flow and directional profiles (Phase 5)
+   #:uniform-flow-field
+   #:sector-predicate
+
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
    #:pmap-cell-range!))

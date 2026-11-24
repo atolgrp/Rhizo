@@ -206,3 +206,92 @@ within MARGIN of the bottom: relay downstream) and :ONE-WAY-FRACTION."
                                                         (lambda (p) (<= (cdr p) margin))
                                                         (lambda (p) (>= (cdr p) (- height margin))))
           :one-way-fraction (one-way-fraction edges))))
+
+;;; Steady rain-fed water content. Under steady infiltration q into a deep
+;;; uniform soil with free drainage the head gradient is zero, so the flux
+;;; is carried by gravity alone: K(theta) = q. Below Ks this fixes theta
+;;; from the rain rate - the simplest flow-driven water content.
+
+(defun steady-drainage-head (soil flux)
+  "Return the pressure head at which SOIL's conductivity equals FLUX (unit
+hydraulic gradient), by bisection in log |h|; 0 when FLUX is at or above
+Ks (saturated)."
+  (if (>= flux (van-genuchten-ks soil))
+      0d0
+      (- (exp (bisect-root (lambda (u) (- (vg-conductivity soil (- (exp u))) flux))
+                           (log (/ 1d-9 (van-genuchten-alpha soil)))
+                           (log (/ 1d9 (van-genuchten-alpha soil))))))))
+
+(defun steady-drainage-water-content (soil flux)
+  "Return the water content of SOIL carrying FLUX under unit gradient
+\(STEADY-DRAINAGE-HEAD)."
+  (vg-water-content soil (steady-drainage-head soil flux)))
+
+(defun flow-soil-parameters (parameters soil theta)
+  "Return PARAMETERS (a signalling set, e.g. AHL-LITERATURE-PARAMETERS)
+with :WATER-CONTENT THETA and the soil made consistent with the hydraulic
+SOIL: :POROSITY = theta_s (Millington-Quirk) and :BULK-DENSITY = 2.65 (1 -
+theta_s) g/cm^3 (sorption), replacing the flagged defaults."
+  (let ((porosity (van-genuchten-theta-s soil)))
+    (mapcar (lambda (p)
+              (case (model-parameter-name p)
+                (:water-content (make-model-parameter :water-content (float theta 1d0) "-"
+                                                      :source "scenario: flow-driven water content"))
+                (:porosity (make-model-parameter :porosity porosity "-"
+                                                 :source "theta_s of the hydraulic soil (van Genuchten)"))
+                (:bulk-density (make-model-parameter
+                                :bulk-density (* 2.65d0 (- 1d0 porosity)) "g/cm^3"
+                                :source "derived: (1 - theta_s) x 2.65 g/cm^3, the particle density of quartz-dominated mineral soil"
+                                :note "porosity taken as theta_s"))
+                (t p)))
+            parameters)))
+
+;;; Prescribed uniform flow and directional measurement.
+
+(defun uniform-flow-field (world flux &key (direction '(0d0 . 1d0)))
+  "Return (values FACE-FLUXES BOUNDARY-OUTFLOWS) of a uniform Darcy FLUX
+along the unit vector DIRECTION (default +y, downward) on WORLD's cells: q
+x EDGE-LENGTH x the component along DIRECTION of the unit vector between
+value points, per stencil face, and q L max(n . DIRECTION, 0) over each
+cell's boundary faces of outward normal n. Exactly divergence-free where
+cell faces close exactly (rectangular grids); on pixelated Voronoi cells
+only approximately - use a Richards solution there."
+  (let* ((tess (mechanistic-world-tessellation world))
+         (index (mechanistic-world-cell-index world))
+         (stencil (mechanistic-world-stencil world))
+         (offsets (flux-stencil-offsets stencil))
+         (neighbors (flux-stencil-neighbors stencil))
+         (conductances (flux-stencil-conductances stencil))
+         (n (cell-index-count index))
+         (positions (map 'vector (lambda (i) (cell-position tess (index->cell-id index i)))
+                         (alexandria:iota n)))
+         (faces (make-array (length neighbors) :element-type 'double-float))
+         (outflows (make-array n :element-type 'double-float :initial-element 0d0))
+         (ux (float (car direction) 1d0)) (uy (float (cdr direction) 1d0)))
+    (dotimes (i n)
+      (loop for k from (aref offsets i) below (aref offsets (1+ i))
+            for pi* = (aref positions i)
+            for pj = (aref positions (aref neighbors k))
+            do (setf (aref faces k)
+                     (* flux (aref conductances k)
+                        (+ (* ux (- (car pj) (car pi*))) (* uy (- (cdr pj) (cdr pi*))))))))
+    (loop for (side nx . ny) in '((:top 0d0 . -1d0) (:bottom 0d0 . 1d0)
+                                  (:left -1d0 . 0d0) (:right 1d0 . 0d0))
+          for out = (max 0d0 (+ (* nx ux) (* ny uy)))
+          when (plusp out)
+            do (loop for (id length) in (boundary-faces tess side)
+                     do (incf (aref outflows (cell-id->index index id)) (* flux length out))))
+    (values faces outflows)))
+
+(defun sector-predicate (origin angle half-width &key (direction '(0d0 . 1d0)))
+  "Return a predicate of a point: true when the point lies within
+HALF-WIDTH (radians) of the ray from ORIGIN at ANGLE from the flow
+DIRECTION (0 downstream, pi upstream, pi/2 across). For directional
+profiles (RADIAL-PROFILE's KEEP)."
+  (let ((ux (float (car direction) 1d0)) (uy (float (cdr direction) 1d0)))
+    (lambda (point)
+      (let* ((dx (- (car point) (car origin))) (dy (- (cdr point) (cdr origin)))
+             (along (+ (* dx ux) (* dy uy))) (across (- (* dy ux) (* dx uy))))
+        (and (or (/= dx 0) (/= dy 0))
+             (let ((difference (- (atan across along) angle)))
+               (<= (abs (atan (sin difference) (cos difference))) half-width)))))))

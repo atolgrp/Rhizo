@@ -130,3 +130,83 @@ concentration C0 in water content THETA0, no reactions."
     (is (= 2/5 (getf c :largest-strong-fraction)) "only 1 <-> 2 goes both ways")
     (is (= 3/5 (getf c :one-way-fraction)))
     (is (getf c :spanning-along-directed) "a directed path from the top to the bottom: 3 -> 1 -> 4")))
+
+(test steady-drainage-water-content-carries-the-flux-under-unit-gradient
+  (let ((soil (um-loam)))
+    (dolist (q '(1d-3 0.1d0 2d0))
+      (let ((h (steady-drainage-head soil q)))
+        (is (< (abs (- (vg-conductivity soil h) q)) (* 1d-9 q)))
+        (is (= (vg-water-content soil h) (steady-drainage-water-content soil q)))))
+    (is (= 0d0 (steady-drainage-head soil (* 2 (van-genuchten-ks soil)))) "above Ks: saturated")
+    (is (< (steady-drainage-water-content soil 1d-3) (steady-drainage-water-content soil 1d0))
+        "more rain, wetter soil")))
+
+(test flow-soil-parameters-make-the-signal-see-the-hydraulic-soil
+  (let* ((soil (um-loam))
+         (p (flow-soil-parameters (ahl-literature-parameters) soil 0.3d0)))
+    (is (= 0.3d0 (parameter-value p :water-content)))
+    (is (= 0.39d0 (parameter-value p :porosity)) "Millington-Quirk porosity is theta_s")
+    (is (< (abs (- (parameter-value p :bulk-density) (* 2.65d0 0.61d0))) 1d-12)
+        "bulk density from theta_s and a mineral particle density")
+    (is (model-parameter-source (find-parameter p :porosity)))
+    (is (model-parameter-source (find-parameter p :bulk-density)))))
+
+(test uniform-flow-field-is-divergence-free-on-rectangles
+  (let* ((world (tracer-flow-world (make-rectangular-tessellation 4 3 :dx 10d0 :dy 5d0) 0.3d0 0d0))
+         (stencil (mechanistic-world-stencil world))
+         (offsets (flux-stencil-offsets stencil))
+         (index (mechanistic-world-cell-index world)))
+    (multiple-value-bind (faces outflows) (uniform-flow-field world 2d0)
+      (dotimes (i 12)
+        (let* ((id (index->cell-id index i))
+               (row (floor id 4))
+               (net-out (+ (aref outflows i)
+                           (loop for k from (aref offsets i) below (aref offsets (1+ i))
+                                 sum (aref faces k))))
+               (inflow (if (= row 0) (* 2d0 10d0) 0d0)))
+          (is (< (abs (- net-out inflow)) 1d-12) "cell ~a: out ~a, in ~a" id net-out inflow)
+          (is (= (aref outflows i) (if (= row 2) 20d0 0d0))))))))
+
+(test sector-profiles-measure-one-direction
+  (let ((keep (sector-predicate '(0d0 . 0d0) 0d0 (/ pi 8))))
+    (is (funcall keep '(1d0 . 10d0)) "downstream (+y) is angle 0")
+    (is (not (funcall keep '(0d0 . -10d0))))
+    (is (not (funcall keep '(10d0 . 0d0)))))
+  (let ((keep (sector-predicate '(0d0 . 0d0) pi (/ pi 8))))
+    (is (funcall keep '(0d0 . -10d0)) "upstream is angle pi")))
+
+(test simulated-advective-source-converges-to-the-analytic-field
+  ;; steady point source of a decaying tracer in uniform flow (Pe over the
+  ;; decay length about 2) on rectangular grids of 10 and 5 um: the
+  ;; relative error away from the source cell falls at first order (single-
+  ;; cell source and upwinding are both first order)
+  (let ((d 50d0) (k 0.02d0) (q 2d0) (side 410d0))
+    (flet ((error-at (n)
+             (let* ((dx (/ side n))
+                    (tess (make-rectangular-tessellation n n :dx dx :dy dx))
+                    (centre (+ (* (floor n 2) n) (floor n 2))) ; middle row and column
+                    (world (make-mechanistic-world
+                            tess :species (list (make-species :name :c :diffusivity d)
+                                                (make-species :name :s :diffusivity 0d0))
+                                 :reactions (list (make-reaction :name :source :stoichiometry '((:c . 1d0))
+                                                                 :rate-fn (mass-action-rate 1d0 :s))
+                                                  (make-reaction :name :decay :stoichiometry '((:c . -1d0))
+                                                                 :rate-fn (first-order-decay-rate k :c)))
+                                 :dt 20d0 :diffusion-scheme :imex
+                                 :initial-state (lambda (id) (when (= id centre)
+                                                               `((:s . ,(/ 1d0 (* dx dx)))))))))
+               (multiple-value-call #'set-flow-field! world (uniform-flow-field world q))
+               (step-to-steady-state! world :c :tolerance 1d-12)
+               (let ((origin (cell-position tess centre)) (num 0d0) (den 0d0))
+                 (loop for (area p c) in (species-cells world :c)
+                       for along = (- (cdr p) (cdr origin))
+                       for across = (- (car p) (car origin))
+                       for r = (sqrt (+ (* along along) (* across across)))
+                       when (< 20d0 r 150d0)
+                         do (let ((exact (advective-point-source-steady-state 1d0 d k q along across)))
+                              (incf num (* area (expt (- c exact) 2)))
+                              (incf den (* area exact exact))))
+                 (sqrt (/ num den))))))
+      (let ((e41 (error-at 41)) (e82 (error-at 82)))
+        (is (< e82 0.1d0) "5 um cells: relative L2 error ~a" e82)
+        (is (< (/ e82 e41) 0.65d0) "first order: ~a -> ~a" e41 e82)))))
