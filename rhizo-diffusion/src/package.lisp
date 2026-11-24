@@ -157,9 +157,6 @@
    #:set-species-diffusivity!
    #:world-stable-timestep
    #:field-initial-state
-   #:make-pfas-rhizobiome-species
-   #:make-pfas-rhizobiome-reactions
-   #:make-pfas-rhizobiome-world
 
    ;; precomputed finite-volume diffusion operator
    #:face-conductance

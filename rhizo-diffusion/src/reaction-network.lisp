@@ -8,9 +8,9 @@
 ;;;
 ;;; Deliberately knows nothing about PFAS, GIS, or rhizospheres - a cell's
 ;;; state is just a vector of numbers keyed by species name via a shared
-;;; SPECIES-INDEX. mechanistic-world.lisp defines the concrete PFAS/microbial
-;;; species and reactions used for this project; a different project reuses
-;;; this file unchanged by defining a different species/reaction list.
+;;; SPECIES-INDEX. Concrete species and reactions are defined elsewhere
+;;; (examples/pfas-rhizobiome.lisp); a different project reuses this file
+;;; unchanged by defining a different species/reaction list.
 
 (defstruct species
   name         ; a keyword, e.g. :substrate - the key used everywhere below

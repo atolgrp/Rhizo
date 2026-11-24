@@ -28,9 +28,17 @@
                (:file "accuracy"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
+(asdf:defsystem "rhizo-diffusion/examples"
+  :description "Example reaction networks built only on the public rhizo-diffusion API (PLAN.md, Phase 2)."
+  :depends-on ("rhizo-diffusion")
+  :pathname "examples/"
+  :serial t
+  :components ((:file "package")
+               (:file "pfas-rhizobiome")))
+
 (asdf:defsystem "rhizo-diffusion/tests"
   :description "FiveAM test suite for rhizo-diffusion."
-  :depends-on ("rhizo-diffusion" "fiveam")
+  :depends-on ("rhizo-diffusion" "rhizo-diffusion/examples" "fiveam")
   :pathname "tests/"
   :serial t
   :components ((:file "package")
@@ -50,7 +58,8 @@
                (:file "flux-stencil-tests")
                (:file "accuracy-tests")
                (:file "implicit-diffusion-tests")
-               (:file "diffusivity-field-tests"))
+               (:file "diffusivity-field-tests")
+               (:file "pfas-example-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!
