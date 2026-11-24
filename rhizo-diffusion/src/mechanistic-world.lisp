@@ -25,7 +25,7 @@
   diffusivities   ; (array double-float (n-cells n-species)) - D of each species in
                   ; each cell; faces use the harmonic mean (flux-stencil.lisp)
   dt
-  (diffusion-scheme :explicit) ; :EXPLICIT or :IMPLICIT - see STEP-MECHANISTIC!
+  (diffusion-scheme :explicit) ; :EXPLICIT, :IMPLICIT or :IMEX - see STEP-MECHANISTIC!
   (tick 0 :type fixnum))
 
 (defun diffusivity-array (cell-index species diffusivity-field)
@@ -65,11 +65,13 @@ given TESSELLATION/SPECIES pair. INITIAL-STATE is either an alist
 cell-id returning such an alist - so a source-region seeding pattern (like
 SEED-MOLECULES-AT! in diffusion.lisp) is possible. DIFFUSION-SCHEME is
 :EXPLICIT (DIFFUSION-SUBSTEP!, DT must respect STABLE-TIMESTEP) or :IMPLICIT
-\(IMPLICIT-DIFFUSION-SUBSTEP!, backward Euler, stable at any DT).
+\(IMPLICIT-DIFFUSION-SUBSTEP!, backward Euler, stable at any DT), both
+Strang-split with RK4 reactions, or :IMEX (IMEX Euler, not split: exact
+steady states, explicit Euler reactions - see STEP-MECHANISTIC!).
 DIFFUSIVITY-FIELD gives species a per-cell diffusivity (see
 DIFFUSIVITY-ARRAY); other species use their SPECIES-DIFFUSIVITY everywhere.
 SET-SPECIES-DIFFUSIVITY! changes it during a run."
-  (unless (member diffusion-scheme '(:explicit :implicit))
+  (unless (member diffusion-scheme '(:explicit :implicit :imex))
     (error "MAKE-MECHANISTIC-WORLD: unknown diffusion scheme ~s" diffusion-scheme))
   (let* ((cell-index (make-cell-index tessellation))
          (n-cells (cell-index-count cell-index))

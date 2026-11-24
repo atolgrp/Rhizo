@@ -44,6 +44,12 @@ floor-clamping every negative value would hide that instability instead of
 surfacing it - the same 'fail loud, not quiet' call made elsewhere in this
 codebase.")
 
+(declaim (inline snap-underflow))
+(defun snap-underflow (y)
+  "Return Y, or 0.0d0 if Y is negative by less than
+*REACTION-UNDERFLOW-EPSILON* (round-off near an exhausted pool; see there)."
+  (if (and (minusp y) (> y (- *reaction-underflow-epsilon*))) 0.0d0 y))
+
 (defun rk4-cell-reaction! (state i n-species species-index reactions dt)
   "Advance row I of STATE by DT of local reaction kinetics via a fixed
 4-stage Runge-Kutta step - deterministic and simple rather than an adaptive
@@ -68,8 +74,7 @@ too stiff for this)."
       (let ((y (+ (aref y0 s)
                   (* (/ dt 6.0d0)
                      (+ (aref k1 s) (* 2.0d0 (aref k2 s)) (* 2.0d0 (aref k3 s)) (aref k4 s))))))
-        (setf (aref state i s)
-              (if (and (minusp y) (> y (- *reaction-underflow-epsilon*))) 0.0d0 y)))))
+        (setf (aref state i s) (snap-underflow y)))))
   state)
 
 (defun reaction-substep! (world dt)
@@ -84,6 +89,27 @@ PMAP-CELL-RANGE!."
     (pmap-cell-range!
      n-cells
      (lambda (i) (rk4-cell-reaction! state i n-species species-index reactions dt))))
+  world)
+
+(defun euler-reaction-substep! (world dt)
+  "Advance every cell's local reaction state by one explicit Euler step of
+DT: c + DT f(c), f the NET-REACTION-DERIVATIVE! at the current state, with
+SNAP-UNDERFLOW. Purely local per cell, so run in parallel. The reaction
+half of the :IMEX scheme (STEP-MECHANISTIC!); positive and stable only for
+DT below 1 / (the fastest reaction rate)."
+  (let ((state (mechanistic-world-state world))
+        (species-index (mechanistic-world-species-index world))
+        (reactions (mechanistic-world-reactions world))
+        (n-species (mechanistic-world-n-species world)))
+    (pmap-cell-range!
+     (cell-index-count (mechanistic-world-cell-index world))
+     (lambda (i)
+       (let ((y (make-array n-species :element-type 'double-float))
+             (f (make-array n-species :element-type 'double-float)))
+         (dotimes (s n-species) (setf (aref y s) (aref state i s)))
+         (net-reaction-derivative! f y species-index reactions)
+         (dotimes (s n-species)
+           (setf (aref state i s) (snap-underflow (+ (aref y s) (* dt (aref f s))))))))))
   world)
 
 (defun diffusion-substep! (world dt)
@@ -121,21 +147,39 @@ a synchronous CA-style update."
 
 (defun scheme-diffusion-substep! (world dt)
   "Advance WORLD by DT of diffusion with the world's own DIFFUSION-SCHEME:
-DIFFUSION-SUBSTEP! for :EXPLICIT, IMPLICIT-DIFFUSION-SUBSTEP! for
-:IMPLICIT. Returns WORLD."
+DIFFUSION-SUBSTEP! for :EXPLICIT, IMPLICIT-DIFFUSION-SUBSTEP! for :IMPLICIT
+and :IMEX (whose diffusion is backward Euler). Returns WORLD."
   (ecase (mechanistic-world-diffusion-scheme world)
     (:explicit (diffusion-substep! world dt))
-    (:implicit (implicit-diffusion-substep! world dt)))
+    ((:implicit :imex) (implicit-diffusion-substep! world dt)))
   world)
 
+;;; The :IMEX scheme is not split. One explicit Euler reaction step followed
+;;; by one backward Euler diffusion step is exactly IMEX Euler,
+;;;
+;;;     (A + dt K) c' = A (c + dt f(c)),
+;;;
+;;; whose fixed point is K c = A f(c): the steady state of the discrete
+;;; equations, at any dt. Strang splitting does not have this property: its
+;;; fixed point is off by O(dt), and by much more for modes that diffusion
+;;; damps within one step (measured 2026-11-24: 11% error in the steady
+;;; profile around a single producer at k dt = 0.1). Both are first order
+;;; in time for transients (backward Euler); Strang's RK4 tolerates stiffer
+;;; reactions.
+
 (defun step-mechanistic! (world)
-  "Advance WORLD by one tick of its own DT via Strang splitting - reaction
-half-step, full diffusion step (explicit or backward Euler, per the world's
-DIFFUSION-SCHEME), reaction half-step. See the file header."
+  "Advance WORLD by one tick of its own DT. For DIFFUSION-SCHEME :EXPLICIT
+or :IMPLICIT, by Strang splitting - RK4 reaction half-step, full diffusion
+step, reaction half-step (see the file header). For :IMEX, by IMEX Euler -
+EULER-REACTION-SUBSTEP! then IMPLICIT-DIFFUSION-SUBSTEP!, which keeps
+steady states exact (see above)."
   (let ((dt (mechanistic-world-dt world)))
-    (reaction-substep! world (/ dt 2.0d0))
-    (scheme-diffusion-substep! world dt)
-    (reaction-substep! world (/ dt 2.0d0)))
+    (if (eq (mechanistic-world-diffusion-scheme world) :imex)
+        (progn (euler-reaction-substep! world dt)
+               (implicit-diffusion-substep! world dt))
+        (progn (reaction-substep! world (/ dt 2.0d0))
+               (scheme-diffusion-substep! world dt)
+               (reaction-substep! world (/ dt 2.0d0)))))
   (incf (mechanistic-world-tick world))
   world)
 

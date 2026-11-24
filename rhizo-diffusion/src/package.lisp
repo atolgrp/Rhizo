@@ -203,6 +203,8 @@
    #:stable-timestep
    #:rk4-cell-reaction!
    #:reaction-substep!
+   #:snap-underflow
+   #:euler-reaction-substep!
    #:diffusion-substep!
    #:scheme-diffusion-substep!
    #:step-mechanistic!
@@ -248,6 +250,10 @@
    #:exudate-species
    #:exudate-reactions
    #:make-root-exudate-world
+
+   ;; analysis of signalling runs (Phase 2 gate)
+   #:bessel-k0
+   #:point-source-steady-state
 
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel

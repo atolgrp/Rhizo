@@ -27,7 +27,8 @@
                (:file "implicit-diffusion")
                (:file "mechanistic-step")
                (:file "accuracy")
-               (:file "signalling"))
+               (:file "signalling")
+               (:file "signalling-analysis"))
   :in-order-to ((asdf:test-op (asdf:test-op "rhizo-diffusion/tests"))))
 
 (asdf:defsystem "rhizo-diffusion/examples"
@@ -61,9 +62,11 @@
                (:file "accuracy-tests")
                (:file "implicit-diffusion-tests")
                (:file "diffusivity-field-tests")
+               (:file "imex-tests")
                (:file "pfas-example-tests")
                (:file "parameters-tests")
-               (:file "signalling-tests"))
+               (:file "signalling-tests")
+               (:file "signalling-analysis-tests"))
   :perform (asdf:test-op (op c)
              (declare (ignore op c))
              (uiop:symbol-call :fiveam :run!
