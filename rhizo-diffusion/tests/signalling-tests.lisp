@@ -26,9 +26,9 @@
            1d-3))                                                     ; half-life 125 h
     (is (= 70d0 (parameter-value parameters :induction-threshold)))))
 
-(test ahl-partition-coefficient-is-bulk-density-times-kd-over-water-content
+(test partition-coefficient-is-bulk-density-times-kd-over-water-content
   (is (< (relative-difference
-          6d0 (ahl-partition-coefficient (ahl-test-parameters :bulk-density 1.5d0 :kd 2d0
+          6d0 (partition-coefficient (ahl-test-parameters :bulk-density 1.5d0 :kd 2d0
                                                               :water-content 0.5d0)))
          1d-15)))
 
@@ -77,7 +77,7 @@
 (test ahl-sorption-relaxes-to-the-partition-equilibrium
   (let* ((parameters (ahl-test-parameters :hydrolysis-rate 0d0 :basal-production 0d0
                                           :induced-production 0d0))
-         (k-prime (ahl-partition-coefficient parameters))
+         (k-prime (partition-coefficient parameters))
          (world (make-ahl-world (single-cell-tessellation 1d0) :parameters parameters :dt 10d0
                                 :initial-state '((:ahl . 100d0)))))
     (dotimes (i 200) (step-mechanistic! world))
@@ -99,13 +99,13 @@
                                        `((:ahl . 10d0)
                                          (:producer . ,(if (member id producer-cells) 1d12 0d0))
                                          (:degrader . ,(if (member id producer-cells) 0d0 1d8))))))
-         (before (ahl-pool-balance world)))
+         (before (signal-pool-balance world :ahl)))
     (run-mechanistic! world 50)
     (let ((produced (species-mass world :ahl-produced)))
       (is (plusp produced))
       (is (plusp (species-mass world :ahl-lost)))
-      (is (< (abs (- (ahl-pool-balance world) before)) (* 1d-12 (+ produced (abs before))))
-          "pool balance moved from ~a to ~a" before (ahl-pool-balance world)))))
+      (is (< (abs (- (signal-pool-balance world :ahl) before)) (* 1d-12 (+ produced (abs before))))
+          "pool balance moved from ~a to ~a" before (signal-pool-balance world :ahl)))))
 
 (test sorption-relaxation-rate-is-desorption-rate-times-one-plus-k-prime
   ;; K' = 1 * 2 / 0.5 = 4, so k_des (1 + K') = 1e-3 * 5
@@ -114,3 +114,71 @@
                                                               :water-content 0.5d0
                                                               :desorption-rate 1d-3)))
          1d-15)))
+
+;;; Root exudate as a boundary source (PLAN.md, Phase 2)
+
+(defun root-line-tessellation ()
+  "Three cells in a row at x = 0, 2, 4, each of area 4: root cell \"r\",
+soil cell \"a\" sharing a face of length 2 with it, and soil cell \"b\"
+beyond \"a\" (face length 3), not touching the root."
+  (let ((adjacency (make-hash-table :test 'equal))
+        (areas (make-hash-table :test 'equal))
+        (lengths (make-hash-table :test 'equal)))
+    (add-edge! adjacency "r" "a" 1d0)
+    (add-edge! adjacency "a" "b" 1d0)
+    (dolist (id '("r" "a" "b")) (setf (gethash id areas) 4d0))
+    (set-edge-length! lengths "r" "a" 2d0)
+    (set-edge-length! lengths "a" "b" 3d0)
+    (make-fv-tessellation adjacency :cell-areas areas :edge-lengths lengths
+                                    :cell-positions (positions-table '("r" "a" "b")
+                                                                     (lambda (id)
+                                                                       (cons (* 2 (position id '("r" "a" "b")
+                                                                                            :test #'string=))
+                                                                             0))))))
+
+(defun root-cell-p (id) (string= id "r"))
+
+(test signal-pool-names-follow-the-signal
+  (is (eq :exudate-sorbed (signal-pool :exudate :sorbed)))
+  (is (eq :ahl-lost (signal-pool :ahl :lost))))
+
+(test root-perimeter-sums-faces-between-root-and-soil
+  (is (= 2d0 (root-perimeter (root-line-tessellation) #'root-cell-p))))
+
+(test root-surface-source-spreads-flux-over-adjacent-soil-cells
+  ;; flux 5 over the root-soil face of length 2, into soil cell "a" of area 4
+  (let ((source (root-surface-source (root-line-tessellation) #'root-cell-p 5d0)))
+    (is (= 2.5d0 (funcall source "a")))
+    (is (= 0d0 (funcall source "b")) "a cell not touching the root gets nothing")
+    (is (= 0d0 (funcall source "r")) "the root itself is not soil")))
+
+(test root-diffusivity-field-makes-the-root-a-barrier
+  (let ((field (root-diffusivity-field #'root-cell-p 450d0)))
+    (is (= 0d0 (funcall field "r")))
+    (is (= 450d0 (funcall field "a")))))
+
+(test exudate-literature-parameters-flag-what-has-no-source
+  (let ((parameters (exudate-literature-parameters)))
+    (is (every #'model-parameter-unit parameters))
+    (is (equal '(:exudation-flux :kd :desorption-rate :bulk-density) (flagged-parameters parameters)))
+    ;; Stokes-Einstein scaling of the AHL diffusivity by molar mass, 269.34 -> 330.38 g/mol
+    (is (< (relative-difference (parameter-value parameters :diffusivity)
+                                (* 490d0 (expt (/ 269.34d0 330.38d0) (/ 1d0 3d0))))
+           1d-3))
+    ;; half-life 1.5 d
+    (is (< (relative-difference (/ (log 2d0) (parameter-value parameters :decay-rate)) (* 1.5d0 86400))
+           1d-12))))
+
+(test root-exudate-world-releases-flux-times-perimeter
+  ;; No decay, no sorption: total exudate produced after time t is
+  ;; flux * root perimeter * t, all of it in the soil, none in the root.
+  (let* ((parameters (with-parameter-values (exudate-literature-parameters)
+                       '((:decay-rate . 0d0) (:kd . 0d0) (:exudation-flux . 5d0))))
+         (tess (root-line-tessellation))
+         (world (make-root-exudate-world tess #'root-cell-p :parameters parameters :dt 0.01d0)))
+    (dotimes (i 100) (step-mechanistic! world))
+    (is (< (relative-difference (species-mass world :exudate-produced) (* 5d0 2d0 1d0)) 1d-12))
+    (is (< (relative-difference (species-mass world :exudate) (* 5d0 2d0 1d0)) 1d-9))
+    (is (= 0d0 (cell-species-value world "r" :exudate)))
+    (is (plusp (cell-species-value world "b" :exudate)) "exudate diffuses on into the soil")
+    (is (< (abs (signal-pool-balance world :exudate)) 1d-12))))

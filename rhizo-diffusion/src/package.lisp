@@ -226,15 +226,28 @@
    #:point-source-isotropy
    #:retardation-measurement
 
-   ;; signalling chemistry: AHL quorum sensing
-   #:ahl-literature-parameters
-   #:ahl-partition-coefficient
+   ;; signalling chemistry: AHL quorum sensing and root exudate
+   #:soil-parameters
+   #:partition-coefficient
    #:sorption-relaxation-rate
+   #:signal-pool
+   #:signal-species
+   #:production-reaction
+   #:loss-reaction
+   #:signal-fate-reactions
+   #:pool-balance
+   #:signal-pool-balance
+   #:ahl-literature-parameters
    #:ahl-species
    #:ahl-reactions
    #:make-ahl-world
-   #:pool-balance
-   #:ahl-pool-balance
+   #:root-perimeter
+   #:root-surface-source
+   #:root-diffusivity-field
+   #:exudate-literature-parameters
+   #:exudate-species
+   #:exudate-reactions
+   #:make-root-exudate-world
 
    ;; parallel per-cell update (single-node, shared-memory)
    #:call-with-kernel
